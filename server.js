@@ -37,7 +37,7 @@ app.get('/api/address', async (req, res) => {
           }))
         : []
     );
-  } catch (e) {
+  } catch (_) {
     res.json([]);
   }
 });
@@ -123,29 +123,30 @@ function offerNextDriver(r) {
   clearTimeout(r.offerTimer);
   r.offerTimer = null;
 
-  while (
-    r.candidates.length &&
-    (
-      !users.get(r.candidates[0]) ||
-      !users.get(r.candidates[0]).online ||
-      !users.get(r.candidates[0]).available ||
-      users.get(r.candidates[0]).ws.readyState !== WebSocket.OPEN
-    )
-  ) {
+  while (r.candidates.length) {
+    const d = users.get(r.candidates[0]);
+
+    if (
+      d &&
+      d.online &&
+      d.available &&
+      d.ws.readyState === WebSocket.OPEN
+    ) {
+      break;
+    }
+
     r.candidates.shift();
   }
 
   if (!r.candidates.length) {
-    finishSearch(r);
-    return;
+    return finishSearch(r);
   }
 
   const driverId = r.candidates.shift();
   const d = users.get(driverId);
 
   if (!d) {
-    offerNextDriver(r);
-    return;
+    return offerNextDriver(r);
   }
 
   r.currentDriverId = driverId;
@@ -180,6 +181,31 @@ function offerNextDriver(r) {
   }, OFFER_SECONDS * 1000);
 }
 
+const validTransitions = {
+  accepted: ['going_to_pickup', 'cancelled'],
+  going_to_pickup: ['arrived', 'cancelled'],
+  arrived: ['started', 'cancelled'],
+  started: ['completed', 'cancelled']
+};
+
+function notifyRideState(r, state, message) {
+  r.status = state;
+  r.updatedAt = Date.now();
+
+  const p = users.get(r.passengerId);
+  const d = users.get(r.driverId);
+
+  const payload = {
+    type: 'ride_state',
+    state,
+    ride: r,
+    message: message || null
+  };
+
+  send(p?.ws, payload);
+  send(d?.ws, payload);
+}
+
 wss.on('connection', ws => {
   let uid = null;
 
@@ -188,7 +214,7 @@ wss.on('connection', ws => {
 
     try {
       m = JSON.parse(raw);
-    } catch {
+    } catch (_) {
       return;
     }
 
@@ -284,6 +310,13 @@ wss.on('connection', ws => {
       m.type === 'passenger_offer' &&
       u.role === 'passenger'
     ) {
+      if (u.rideId) {
+        return send(ws, {
+          type: 'error',
+          message: 'Passenger already has an active ride.'
+        });
+      }
+
       const r = {
         id: 'R' + ++seq,
         passengerId: uid,
@@ -312,8 +345,7 @@ wss.on('connection', ws => {
         .map(d => d.id);
 
       if (!r.candidates.length) {
-        finishSearch(r);
-        return;
+        return finishSearch(r);
       }
 
       offerNextDriver(r);
@@ -321,18 +353,12 @@ wss.on('connection', ws => {
       send(ws, {
         type: 'searching',
         rideId: r.id,
-        driverCount: r.candidates.length + 1
+        driverCount: r.candidates.length
       });
 
       return;
     }
 
-    /*
-     * DRIVER PASSES THE RIDE
-     *
-     * The current driver loses the offer.
-     * The offer immediately moves to the next driver.
-     */
     if (
       m.type === 'driver_pass' ||
       m.type === 'driver_timeout'
@@ -360,12 +386,6 @@ wss.on('connection', ws => {
       return;
     }
 
-    /*
-     * DRIVER ACCEPTS THE RIDE
-     *
-     * The server verifies that THIS driver is
-     * the driver currently receiving the offer.
-     */
     if (m.type === 'driver_accept') {
       const r = rides.get(m.rideId);
       const d = u;
@@ -378,18 +398,15 @@ wss.on('connection', ws => {
         !d.online ||
         !d.available
       ) {
-        send(ws, {
+        return send(ws, {
           type: 'ride_lost',
           rideId: m.rideId
         });
-
-        return;
       }
 
       clearTimeout(r.offerTimer);
       r.offerTimer = null;
 
-      r.status = 'accepted';
       r.driverId = uid;
       r.driverName = d.name;
       r.currentDriverId = null;
@@ -399,9 +416,12 @@ wss.on('connection', ws => {
 
       const p = users.get(r.passengerId);
 
-      /*
-       * Tell passenger that a driver accepted.
-       */
+      notifyRideState(
+        r,
+        'accepted',
+        `${d.name} accepted your ride.`
+      );
+
       send(p?.ws, {
         type: 'matched',
         ride: r,
@@ -413,18 +433,11 @@ wss.on('connection', ws => {
         }
       });
 
-      /*
-       * Tell accepting driver.
-       */
       send(ws, {
         type: 'accepted',
         ride: r
       });
 
-      /*
-       * Tell all other drivers that this ride
-       * has already been taken.
-       */
       for (const x of users.values()) {
         if (
           x.role === 'driver' &&
@@ -444,26 +457,55 @@ wss.on('connection', ws => {
     if (m.type === 'ride_state') {
       const r = rides.get(m.rideId);
 
-      if (!r) return;
+      if (
+        !r ||
+        r.status === 'searching' ||
+        r.driverId !== uid
+      ) {
+        return;
+      }
 
-      r.status = m.state;
+      const next = String(m.state || '');
 
-      const p = users.get(r.passengerId);
-      const d = users.get(r.driverId);
+      if (!validTransitions[r.status]?.includes(next)) {
+        return send(ws, {
+          type: 'state_rejected',
+          rideId: r.id,
+          state: next,
+          currentState: r.status
+        });
+      }
 
-      send(p?.ws, {
-        type: 'ride_state',
-        state: r.status,
-        ride: r
-      });
+      const messages = {
+        going_to_pickup:
+          `Driver ${r.driverName} is on the way to pick you up.`,
 
-      send(d?.ws, {
-        type: 'ride_state',
-        state: r.status,
-        ride: r
-      });
+        arrived:
+          `Your driver ${r.driverName} has arrived.`,
 
-      if (m.state === 'completed') {
+        started:
+          `Your ride with ${r.driverName} has started.`,
+
+        completed:
+          `Your ride is complete. Thank you for riding with Transporter7.`,
+
+        cancelled:
+          `Your ride was cancelled.`
+      };
+
+      notifyRideState(
+        r,
+        next,
+        messages[next]
+      );
+
+      if (
+        next === 'completed' ||
+        next === 'cancelled'
+      ) {
+        const p = users.get(r.passengerId);
+        const d = users.get(r.driverId);
+
         if (p) {
           p.rideId = null;
         }
@@ -484,14 +526,23 @@ wss.on('connection', ws => {
 
       if (!r) return;
 
-      clearTimeout(r.offerTimer);
-
-      r.offerTimer = null;
-      r.status = 'cancelled';
-      r.currentDriverId = null;
+      if (r.status === 'searching') {
+        clearTimeout(r.offerTimer);
+        r.offerTimer = null;
+        r.status = 'cancelled';
+        r.currentDriverId = null;
+      } else if (
+        r.driverId !== uid &&
+        r.passengerId !== uid
+      ) {
+        return;
+      }
 
       const p = users.get(r.passengerId);
       const d = users.get(r.driverId);
+
+      r.status = 'cancelled';
+      r.updatedAt = Date.now();
 
       if (p) {
         p.rideId = null;
@@ -504,12 +555,14 @@ wss.on('connection', ws => {
 
       send(p?.ws, {
         type: 'cancelled',
-        ride: r
+        ride: r,
+        message: 'Ride cancelled.'
       });
 
       send(d?.ws, {
         type: 'cancelled',
-        ride: r
+        ride: r,
+        message: 'Ride cancelled.'
       });
 
       for (const x of users.values()) {
@@ -531,45 +584,47 @@ wss.on('connection', ws => {
 
     const u = users.get(uid);
 
-    if (u?.rideId) {
-      const r = rides.get(u.rideId);
-
-      if (
-        r &&
-        r.status === 'searching' &&
-        r.passengerId === uid
-      ) {
-        clearTimeout(r.offerTimer);
-
-        r.status = 'cancelled';
-        r.currentDriverId = null;
-
-        for (const x of users.values()) {
-          if (x.role === 'driver') {
-            send(x.ws, {
-              type: 'ride_cancelled',
-              rideId: r.id
-            });
-          }
-        }
-      }
-    }
-
-    /*
-     * If the driver receiving an offer disconnects,
-     * automatically move the offer to the next driver.
-     */
     for (const r of rides.values()) {
       if (
         r.status === 'searching' &&
         r.currentDriverId === uid
       ) {
         clearTimeout(r.offerTimer);
-
         r.offerTimer = null;
         r.currentDriverId = null;
 
         offerNextDriver(r);
+      }
+
+      if (
+        u?.rideId === r.id &&
+        (r.passengerId === uid ||
+          r.driverId === uid) &&
+        [
+          'accepted',
+          'going_to_pickup',
+          'arrived',
+          'started'
+        ].includes(r.status)
+      ) {
+        r.status = 'cancelled';
+
+        const other = users.get(
+          r.passengerId === uid
+            ? r.driverId
+            : r.passengerId
+        );
+
+        if (other) {
+          other.rideId = null;
+
+          send(other.ws, {
+            type: 'cancelled',
+            ride: r,
+            message:
+              'The other party disconnected; ride cancelled.'
+          });
+        }
       }
     }
 
