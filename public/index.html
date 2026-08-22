@@ -6,7 +6,9 @@
 <title>Transporter7</title>
 
 <style>
-*{box-sizing:border-box}
+*{
+  box-sizing:border-box;
+}
 
 html,body{
   margin:0;
@@ -14,11 +16,11 @@ html,body{
   min-height:100%;
   font-family:Arial,Helvetica,sans-serif;
   background:#f3f4f6;
-  color:#111827
+  color:#111827;
 }
 
 body{
-  min-height:100vh
+  min-height:100vh;
 }
 
 header{
@@ -67,7 +69,8 @@ label{
   margin:12px 0 6px;
 }
 
-input,select{
+input,
+select{
   width:100%;
   padding:13px;
   border:1px solid #d1d5db;
@@ -164,9 +167,10 @@ button:disabled{
   text-align:center;
 }
 
-/* ---------------------------
+
+/* =========================================================
    RIDE OFFER OVERLAY
----------------------------- */
+========================================================= */
 
 #rideModal{
   position:fixed;
@@ -195,11 +199,12 @@ button:disabled{
 @keyframes callIn{
   from{
     transform:scale(.92);
-    opacity:0
+    opacity:0;
   }
+
   to{
     transform:scale(1);
-    opacity:1
+    opacity:1;
   }
 }
 
@@ -211,8 +216,13 @@ button:disabled{
 }
 
 @keyframes ring{
-  from{transform:rotate(-8deg)}
-  to{transform:rotate(8deg)}
+  from{
+    transform:rotate(-8deg);
+  }
+
+  to{
+    transform:rotate(8deg);
+  }
 }
 
 .callTitle{
@@ -258,7 +268,11 @@ button:disabled{
   font-size:20px;
 }
 
-/* Toast */
+
+/* =========================================================
+   TOAST
+========================================================= */
+
 #toast{
   position:fixed;
   left:50%;
@@ -277,7 +291,9 @@ button:disabled{
   display:block;
 }
 
+
 @media(max-width:600px){
+
   .callBox{
     padding:20px;
   }
@@ -306,162 +322,246 @@ button:disabled{
 
 <main>
 
-  <!-- APP SELECTION -->
-  <section id="homeSection" class="card">
-    <h2>Choose App</h2>
 
-    <div class="grid">
+<!-- =======================================================
+     HOME / APP SELECTION
+======================================================= -->
 
-      <button id="driverAppBtn" class="primary big">
-        🚗 DRIVER APP
+<section id="homeSection" class="card">
+
+  <h2>Choose App</h2>
+
+  <div class="grid">
+
+    <button id="driverAppBtn"
+            class="primary big">
+      🚗 DRIVER APP
+    </button>
+
+    <button id="passengerAppBtn"
+            class="primary big">
+      👤 PASSENGER APP
+    </button>
+
+  </div>
+
+  <p id="connectionStatus"
+     class="status warn">
+    Connecting...
+  </p>
+
+</section>
+
+
+
+<!-- =======================================================
+     DRIVER APP
+======================================================= -->
+
+<section id="driverSection"
+         class="hidden">
+
+  <div class="card">
+
+    <h2>Driver Home</h2>
+
+    <label>Driver Name</label>
+
+    <input id="driverName"
+           value="Test Driver">
+
+    <div class="row"
+         style="margin-top:14px">
+
+      <button id="driverOnlineBtn"
+              class="success">
+        GO ONLINE
       </button>
 
-      <button id="passengerAppBtn" class="primary big">
-        👤 PASSENGER APP
-      </button>
-
-    </div>
-
-    <p id="connectionStatus" class="status warn">
-      Connecting...
-    </p>
-  </section>
-
-
-  <!-- DRIVER -->
-  <section id="driverSection" class="hidden">
-
-    <div class="card">
-
-      <h2>Driver Home</h2>
-
-      <label>Driver Name</label>
-      <input id="driverName" value="Test Driver">
-
-      <div class="row" style="margin-top:14px">
-        <button id="driverOnlineBtn" class="success">
-          GO ONLINE
-        </button>
-
-        <button id="driverOfflineBtn" class="secondary">
-          GO OFFLINE
-        </button>
-      </div>
-
-      <div id="driverStatus" class="status">
-        Driver is starting...
-      </div>
-
-      <div id="driverRidePanel" class="card hidden">
-        <h3>Current Ride</h3>
-
-        <div id="driverRideInfo"></div>
-
-        <div class="row">
-          <button id="driverArrivedBtn" class="primary">
-            ARRIVED
-          </button>
-
-          <button id="driverPickedBtn" class="primary">
-            PICKED UP
-          </button>
-
-          <button id="driverCompleteBtn" class="success">
-            COMPLETE
-          </button>
-        </div>
-
-        <button id="driverCancelBtn"
-                class="danger big"
-                style="margin-top:12px">
-          CANCEL RIDE
-        </button>
-      </div>
-
-      <button id="backFromDriverBtn"
-              class="secondary big"
-              style="margin-top:16px">
-        BACK
+      <button id="driverOfflineBtn"
+              class="secondary">
+        GO OFFLINE
       </button>
 
     </div>
 
-  </section>
+    <div id="driverStatus"
+         class="status">
+      Driver is starting...
+    </div>
 
 
-  <!-- PASSENGER -->
-  <section id="passengerSection" class="hidden">
 
-    <div class="card">
+    <!-- ===============================================
+         CURRENT DRIVER RIDE
+    ================================================ -->
 
-      <h2>Request a Ride</h2>
+    <div id="driverRidePanel"
+         class="card hidden">
 
-      <label>Passenger Name</label>
-      <input id="passengerName" value="Test Passenger">
+      <h3>Current Ride</h3>
 
-      <label>Pickup</label>
-      <input
-        id="pickup"
-        placeholder="Start typing pickup address..."
-        autocomplete="off"
-      >
+      <div id="driverRideInfo"></div>
 
-      <label>Destination</label>
-      <input
-        id="destination"
-        placeholder="Start typing destination..."
-        autocomplete="off"
-      >
 
-      <label>Passengers</label>
-      <input id="pax" type="number" min="1" value="1">
+      <!--
+        IMPORTANT DRIVER FLOW
 
-      <label>Fare / Offer</label>
-      <input id="fare" type="number" min="0" step=".01" value="20">
+        ACCEPTED
+           ↓
+        GO PICK UP — Passenger
+           ↓
+        ARRIVED
+           ↓
+        START RIDE
+           ↓
+        DROP OFF — Passenger
+      -->
 
-      <button id="requestRideBtn"
-              class="primary big"
-              style="margin-top:18px">
-        REQUEST RIDE
-      </button>
+      <div class="row">
 
-      <div id="passengerStatus" class="status">
-        Ready.
-      </div>
-
-      <div id="passengerRidePanel" class="card hidden">
-        <h3>Ride</h3>
-        <div id="passengerRideInfo"></div>
-
-        <button id="passengerCancelBtn"
-                class="danger big"
-                style="margin-top:14px">
-          CANCEL RIDE
+        <button id="driverArrivedBtn"
+                class="primary hidden">
+          GO PICK UP
         </button>
+
+        <button id="driverStartBtn"
+                class="primary hidden">
+          START RIDE
+        </button>
+
+        <button id="driverCompleteBtn"
+                class="success hidden">
+          DROP OFF
+        </button>
+
       </div>
 
-      <button id="backFromPassengerBtn"
-              class="secondary big"
-              style="margin-top:16px">
-        BACK
+
+      <button id="driverCancelBtn"
+              class="danger big"
+              style="margin-top:12px">
+        CANCEL RIDE
       </button>
 
     </div>
 
-  </section>
 
-</main>
+    <button id="backFromDriverBtn"
+            class="secondary big"
+            style="margin-top:16px">
+      BACK
+    </button>
+
+  </div>
+
+</section>
 
 
-<!-- ==========================================
-     FOREGROUND INCOMING RIDE CALL
-=========================================== -->
 
-<div id="rideModal" class="hidden">
+<!-- =======================================================
+     PASSENGER APP
+======================================================= -->
+
+<section id="passengerSection"
+         class="hidden">
+
+  <div class="card">
+
+    <h2>Request a Ride</h2>
+
+    <label>Passenger Name</label>
+
+    <input id="passengerName"
+           value="Test Passenger">
+
+
+    <label>Pickup</label>
+
+    <input id="pickup"
+           placeholder="Start typing pickup address..."
+           autocomplete="off">
+
+
+    <label>Destination</label>
+
+    <input id="destination"
+           placeholder="Start typing destination address..."
+           autocomplete="off">
+
+
+    <label>Passengers</label>
+
+    <input id="pax"
+           type="number"
+           min="1"
+           value="1">
+
+
+    <label>Fare / Offer</label>
+
+    <input id="fare"
+           type="number"
+           min="0"
+           step=".01"
+           value="20">
+
+
+    <button id="requestRideBtn"
+            class="primary big"
+            style="margin-top:18px">
+      REQUEST RIDE
+    </button>
+
+
+    <div id="passengerStatus"
+         class="status">
+      Ready.
+    </div>
+
+
+    <!-- PASSENGER CURRENT RIDE -->
+
+    <div id="passengerRidePanel"
+         class="card hidden">
+
+      <h3>Current Ride</h3>
+
+      <div id="passengerRideInfo"></div>
+
+      <button id="passengerCancelBtn"
+              class="danger big"
+              style="margin-top:14px">
+        CANCEL RIDE
+      </button>
+
+    </div>
+
+
+    <button id="backFromPassengerBtn"
+            class="secondary big"
+            style="margin-top:16px">
+      BACK
+    </button>
+
+  </div>
+
+</section>
+
+
+
+<!-- =======================================================
+     INCOMING DRIVER RIDE OFFER
+======================================================= -->
+
+<div id="rideModal"
+     class="hidden">
 
   <div class="callBox">
 
-    <div class="phoneIcon">📞</div>
+    <div class="phoneIcon">
+      📞
+    </div>
 
     <div class="callTitle">
       NEW RIDE OFFER
@@ -471,9 +571,11 @@ button:disabled{
       Incoming passenger request
     </div>
 
-    <div id="callCountdown" class="countdown">
+    <div id="callCountdown"
+         class="countdown">
       20
     </div>
+
 
     <div class="offerInfo">
 
@@ -509,6 +611,7 @@ button:disabled{
 
     </div>
 
+
     <div class="callButtons">
 
       <button id="takeRideBtn"
@@ -528,116 +631,184 @@ button:disabled{
 </div>
 
 
+
 <div id="toast"></div>
 
 
+
 <script>
+
 /* =========================================================
    TRANSPORTER7 FRONT-END
-   Matches server.js message types exactly.
+   Uses the EXISTING server.js state machine.
+
+   DRIVER RIDE STATES:
+
+   accepted
+       ↓
+   going_to_pickup
+       ↓
+   arrived
+       ↓
+   started
+       ↓
+   completed
 ========================================================= */
 
+
 let ws = null;
+
 let myUserId = null;
+
 let myRole = null;
 
 let currentRide = null;
 
 let offerRideId = null;
+
 let offerActive = false;
+
 let offerTimer = null;
+
 let offerSecondsLeft = 20;
 
 let audioContext = null;
+
 let alarmTimer = null;
 
 let geoWatch = null;
 
 
+
 /* =========================================================
-   ELEMENT HELPERS
+   ELEMENT HELPER
 ========================================================= */
 
 const $ = id => document.getElementById(id);
 
+
 function show(id){
-  $(id).classList.remove('hidden');
+
+  const el = $(id);
+
+  if(el){
+    el.classList.remove('hidden');
+  }
 }
+
 
 function hide(id){
-  $(id).classList.add('hidden');
+
+  const el = $(id);
+
+  if(el){
+    el.classList.add('hidden');
+  }
 }
+
 
 function setStatus(id,text,type=''){
+
   const el = $(id);
+
+  if(!el){
+    return;
+  }
+
   el.textContent = text;
-  el.className = 'status ' + type;
+
+  el.className =
+    'status ' + type;
 }
 
+
 function toast(text){
+
   const el = $('toast');
 
+  if(!el){
+    return;
+  }
+
   el.textContent = text;
+
   el.classList.add('show');
 
   clearTimeout(toast.timer);
 
-  toast.timer = setTimeout(()=>{
-    el.classList.remove('show');
-  },2500);
+  toast.timer =
+    setTimeout(()=>{
+      el.classList.remove('show');
+    },2500);
 }
+
 
 
 /* =========================================================
    AUDIO
 ========================================================= */
 
-/*
- * The browser normally blocks audio until the user has
- * interacted with the page.
- *
- * The DRIVER APP button calls unlockAudio(), so when the
- * ride arrives later the alarm can play.
- */
-
 async function unlockAudio(){
 
   try{
 
     if(!audioContext){
+
       audioContext =
-        new (window.AudioContext ||
-             window.webkitAudioContext)();
+        new (
+          window.AudioContext ||
+          window.webkitAudioContext
+        )();
+
     }
 
     if(audioContext.state === 'suspended'){
+
       await audioContext.resume();
+
     }
 
-    /* short silent oscillator to unlock audio */
-    const osc = audioContext.createOscillator();
-    const gain = audioContext.createGain();
+
+    const osc =
+      audioContext.createOscillator();
+
+    const gain =
+      audioContext.createGain();
 
     gain.gain.value = 0.0001;
 
     osc.connect(gain);
-    gain.connect(audioContext.destination);
+
+    gain.connect(
+      audioContext.destination
+    );
 
     osc.start();
 
     setTimeout(()=>{
-      try{ osc.stop(); }catch(e){}
+
+      try{
+        osc.stop();
+      }catch(e){}
+
     },80);
 
   }catch(e){
-    console.log('Audio unlock failed',e);
+
+    console.log(
+      'Audio unlock failed',
+      e
+    );
+
   }
 }
 
 
 function playTone(){
 
-  if(!audioContext) return;
+  if(!audioContext){
+    return;
+  }
 
   try{
 
@@ -645,28 +816,64 @@ function playTone(){
       audioContext.resume();
     }
 
-    const now = audioContext.currentTime;
+    const now =
+      audioContext.currentTime;
 
-    const osc = audioContext.createOscillator();
-    const gain = audioContext.createGain();
+
+    const osc =
+      audioContext.createOscillator();
+
+    const gain =
+      audioContext.createGain();
+
 
     osc.type = 'sine';
 
-    osc.frequency.setValueAtTime(880,now);
-    osc.frequency.setValueAtTime(660,now + .16);
+    osc.frequency.setValueAtTime(
+      880,
+      now
+    );
 
-    gain.gain.setValueAtTime(.0001,now);
-    gain.gain.exponentialRampToValueAtTime(.32,now + .025);
-    gain.gain.exponentialRampToValueAtTime(.0001,now + .38);
+    osc.frequency.setValueAtTime(
+      660,
+      now + .16
+    );
+
+
+    gain.gain.setValueAtTime(
+      .0001,
+      now
+    );
+
+    gain.gain.exponentialRampToValueAtTime(
+      .32,
+      now + .025
+    );
+
+    gain.gain.exponentialRampToValueAtTime(
+      .0001,
+      now + .38
+    );
+
 
     osc.connect(gain);
-    gain.connect(audioContext.destination);
+
+    gain.connect(
+      audioContext.destination
+    );
+
 
     osc.start(now);
+
     osc.stop(now + .4);
 
   }catch(e){
-    console.log('Tone error',e);
+
+    console.log(
+      'Tone error',
+      e
+    );
+
   }
 }
 
@@ -677,35 +884,53 @@ function startRideSound(){
 
   playTone();
 
-  alarmTimer = setInterval(()=>{
-    if(offerActive){
-      playTone();
+  alarmTimer =
+    setInterval(()=>{
 
-      if(navigator.vibrate){
-        try{
-          navigator.vibrate([300,120,300]);
-        }catch(e){}
+      if(offerActive){
+
+        playTone();
+
+        if(navigator.vibrate){
+
+          try{
+
+            navigator.vibrate([
+              300,
+              120,
+              300
+            ]);
+
+          }catch(e){}
+
+        }
+
       }
-    }
-  },1100);
+
+    },1100);
 }
 
 
 function stopRideSound(){
 
   clearInterval(alarmTimer);
+
   alarmTimer = null;
 
   if(navigator.vibrate){
+
     try{
       navigator.vibrate(0);
     }catch(e){}
+
   }
+
 }
 
 
+
 /* =========================================================
-   WEBSOCKET
+   WEBSOCKET CONNECTION
 ========================================================= */
 
 function connect(){
@@ -715,75 +940,118 @@ function connect(){
       ? 'wss:'
       : 'ws:';
 
-  ws = new WebSocket(
-    protocol + '//' + location.host
+
+  ws =
+    new WebSocket(
+      protocol +
+      '//' +
+      location.host
+    );
+
+
+  ws.addEventListener(
+    'open',
+    ()=>{
+
+      setStatus(
+        'connectionStatus',
+        'Connected',
+        'good'
+      );
+
+      toast('Connected');
+
+    }
   );
 
-  ws.addEventListener('open',()=>{
 
-    setStatus(
-      'connectionStatus',
-      'Connected',
-      'good'
-    );
+  ws.addEventListener(
+    'close',
+    ()=>{
 
-    toast('Connected');
+      setStatus(
+        'connectionStatus',
+        'Disconnected — reconnecting...',
+        'bad'
+      );
 
-  });
+      myUserId = null;
 
-  ws.addEventListener('close',()=>{
+      setTimeout(
+        connect,
+        1500
+      );
 
-    setStatus(
-      'connectionStatus',
-      'Disconnected — reconnecting...',
-      'bad'
-    );
-
-    myUserId = null;
-
-    setTimeout(connect,1500);
-  });
-
-  ws.addEventListener('error',()=>{
-    setStatus(
-      'connectionStatus',
-      'Connection error',
-      'bad'
-    );
-  });
-
-  ws.addEventListener('message',event=>{
-
-    let m;
-
-    try{
-      m = JSON.parse(event.data);
-    }catch(e){
-      return;
     }
+  );
 
-    handleMessage(m);
-  });
+
+  ws.addEventListener(
+    'error',
+    ()=>{
+
+      setStatus(
+        'connectionStatus',
+        'Connection error',
+        'bad'
+      );
+
+    }
+  );
+
+
+  ws.addEventListener(
+    'message',
+    event=>{
+
+      let m;
+
+      try{
+
+        m =
+          JSON.parse(
+            event.data
+          );
+
+      }catch(e){
+
+        return;
+
+      }
+
+      handleMessage(m);
+
+    }
+  );
 }
+
 
 
 function send(message){
 
   if(
     ws &&
-    ws.readyState === WebSocket.OPEN
+    ws.readyState ===
+      WebSocket.OPEN
   ){
-    ws.send(JSON.stringify(message));
+
+    ws.send(
+      JSON.stringify(message)
+    );
+
     return true;
   }
 
+
   toast('Not connected');
+
   return false;
 }
 
 
+
 /* =========================================================
-   HELLO
+   START DRIVER OR PASSENGER
 ========================================================= */
 
 function startRole(role){
@@ -792,10 +1060,29 @@ function startRole(role){
 
   myRole = role;
 
+
   const name =
     role === 'driver'
-      ? $('driverName').value.trim() || 'Test Driver'
-      : $('passengerName').value.trim() || 'Test Passenger';
+      ? (
+          $('driverName')
+            .value
+            .trim()
+          ||
+          'Test Driver'
+        )
+      : (
+          $('passengerName')
+            .value
+            .trim()
+          ||
+          'Test Passenger'
+        );
+
+
+  /*
+   * HELLO MUST COME FIRST.
+   * WebSocket preserves message order.
+   */
 
   send({
     type:'hello',
@@ -803,39 +1090,51 @@ function startRole(role){
     name
   });
 
+
   send({
     type:'profile',
     name
   });
 
+
   if(role === 'driver'){
+
     show('driverSection');
+
     hide('homeSection');
+
 
     setStatus(
       'driverStatus',
-      'Driver online and available',
+      'Driver online and available.',
       'good'
     );
+
 
     send({
       type:'driver_status',
       online:true
     });
 
+
   }else{
 
     show('passengerSection');
+
     hide('homeSection');
+
 
     setStatus(
       'passengerStatus',
       'Ready to request a ride.'
     );
+
   }
+
 
   startLocationTracking();
 }
+
 
 
 /* =========================================================
@@ -846,47 +1145,110 @@ function handleMessage(m){
 
   switch(m.type){
 
+
+    /* =====================================================
+       HELLO
+    ===================================================== */
+
     case 'hello_ok':
-      myUserId = m.userId;
+
+      myUserId =
+        m.userId;
+
       break;
 
 
-    /* ---------------- DRIVER ---------------- */
+
+    /* =====================================================
+       DRIVER RECEIVES RIDE OFFER
+    ===================================================== */
 
     case 'ride_call':
+
       if(myRole === 'driver'){
+
         showRideOffer(m);
+
       }
+
       break;
 
+
+
+    /* =====================================================
+       OFFER TIMEOUT
+    ===================================================== */
 
     case 'ride_timeout':
+
       if(myRole === 'driver'){
-        if(offerRideId === m.rideId){
-          closeRideOffer('Ride offer timed out');
+
+        if(
+          offerRideId ===
+          m.rideId
+        ){
+
+          closeRideOffer(
+            'Ride offer timed out'
+          );
+
         }
+
       }
+
       break;
 
+
+
+    /* =====================================================
+       DRIVER PASSED
+    ===================================================== */
 
     case 'offer_passed':
+
       if(myRole === 'driver'){
-        if(offerRideId === m.rideId){
-          closeRideOffer('Ride passed');
+
+        if(
+          offerRideId ===
+          m.rideId
+        ){
+
+          closeRideOffer(
+            'Ride passed'
+          );
+
         }
+
       }
+
       break;
 
 
+
+    /* =====================================================
+       DRIVER ACCEPTED RIDE
+    ===================================================== */
+
     case 'accepted':
+
       if(myRole === 'driver'){
-        closeRideOffer('Ride accepted');
 
-        currentRide = m.ride;
+        closeRideOffer(
+          'Ride accepted'
+        );
 
-        show('driverRidePanel');
+
+        currentRide =
+          m.ride;
+
+
+        show(
+          'driverRidePanel'
+        );
+
 
         renderDriverRide();
+
 
         setStatus(
           'driverStatus',
@@ -894,33 +1256,69 @@ function handleMessage(m){
           'good'
         );
 
-        toast('Ride accepted');
+
+        toast(
+          'Ride accepted'
+        );
+
       }
+
       break;
 
+
+
+    /* =====================================================
+       RIDE LOST
+    ===================================================== */
 
     case 'ride_lost':
-      if(myRole === 'driver'){
-        closeRideOffer('Ride was already taken');
 
-        toast('Ride was taken by another driver');
+      if(myRole === 'driver'){
+
+        closeRideOffer(
+          'Ride was already taken'
+        );
+
+
+        toast(
+          'Ride was taken by another driver'
+        );
+
       }
+
       break;
 
+
+
+    /* =====================================================
+       ANOTHER DRIVER TOOK RIDE
+    ===================================================== */
 
     case 'ride_taken':
+
       if(myRole === 'driver'){
+
         if(
-          offerRideId === m.rideId &&
+          offerRideId ===
+          m.rideId &&
           offerActive
         ){
-          closeRideOffer('Ride taken by another driver');
+
+          closeRideOffer(
+            'Ride taken by another driver'
+          );
+
         }
+
       }
+
       break;
 
 
-    /* ---------------- PASSENGER ---------------- */
+
+    /* =====================================================
+       PASSENGER SEARCHING
+    ===================================================== */
 
     case 'searching':
 
@@ -932,23 +1330,36 @@ function handleMessage(m){
           'warn'
         );
 
+
         currentRide = {
           id:m.rideId
         };
+
       }
 
       break;
 
 
+
+    /* =====================================================
+       PASSENGER MATCHED
+    ===================================================== */
+
     case 'matched':
 
       if(myRole === 'passenger'){
 
-        currentRide = m.ride;
+        currentRide =
+          m.ride;
 
-        show('passengerRidePanel');
+
+        show(
+          'passengerRidePanel'
+        );
+
 
         renderPassengerRide();
+
 
         setStatus(
           'passengerStatus',
@@ -956,11 +1367,20 @@ function handleMessage(m){
           'good'
         );
 
-        toast('Driver accepted your ride');
+
+        toast(
+          'Driver accepted your ride'
+        );
+
       }
 
       break;
 
+
+
+    /* =====================================================
+       NO DRIVER
+    ===================================================== */
 
     case 'no_driver':
 
@@ -972,86 +1392,260 @@ function handleMessage(m){
           'bad'
         );
 
+
         currentRide = null;
+
+        hide(
+          'passengerRidePanel'
+        );
+
       }
 
       break;
 
+
+
+    /* =====================================================
+       RIDE STATE CHANGE
+    ===================================================== */
 
     case 'ride_state':
 
       if(m.ride){
 
-        currentRide = m.ride;
+        currentRide =
+          m.ride;
 
       }
 
+
       if(myRole === 'driver'){
+
         renderDriverRide();
+
+
+        const state =
+          m.state;
+
+
+        const driverMessages = {
+
+          accepted:
+            'RIDE ACCEPTED — Ready to go.',
+
+          going_to_pickup:
+            'GOING TO PICK UP — ' +
+            (
+              currentRide?.passengerName ||
+              'Passenger'
+            ),
+
+          arrived:
+            'ARRIVED — Passenger pickup confirmed.',
+
+          started:
+            'RIDE STARTED — Passenger is onboard.',
+
+          completed:
+            'DROP OFF COMPLETE — Ride finished.',
+
+          cancelled:
+            'Ride cancelled.'
+        };
+
 
         setStatus(
           'driverStatus',
-          'Ride status: ' + m.state,
-          'good'
+          driverMessages[state] ||
+          'Ride status: ' + state,
+          state === 'cancelled'
+            ? 'warn'
+            : 'good'
         );
+
+
+        /*
+         * Once completed, clear the driver's ride
+         * and return to available status.
+         */
+
+        if(state === 'completed'){
+
+          currentRide = null;
+
+          hide(
+            'driverRidePanel'
+          );
+
+          setStatus(
+            'driverStatus',
+            'Ride complete. Driver is available again.',
+            'good'
+          );
+
+        }
+
       }
 
+
+
       if(myRole === 'passenger'){
+
         renderPassengerRide();
+
+
+        const passengerMessages = {
+
+          accepted:
+            'Driver accepted your ride.',
+
+          going_to_pickup:
+            'Driver is on the way to pick you up.',
+
+          arrived:
+            'Your driver has arrived.',
+
+          started:
+            'Your ride has started.',
+
+          completed:
+            'You have arrived. Ride complete.',
+
+          cancelled:
+            'Ride cancelled.'
+        };
+
 
         setStatus(
           'passengerStatus',
+          passengerMessages[m.state] ||
           'Ride status: ' + m.state,
-          'good'
+          m.state === 'cancelled'
+            ? 'warn'
+            : 'good'
         );
-      }
 
-      if(m.state === 'completed'){
-        currentRide = null;
+
+        if(m.state === 'completed'){
+
+          currentRide = null;
+
+          hide(
+            'passengerRidePanel'
+          );
+
+        }
+
       }
 
       break;
 
 
+
+    /* =====================================================
+       CANCELLED
+    ===================================================== */
+
     case 'cancelled':
 
       currentRide = null;
 
+
       if(myRole === 'driver'){
-        hide('driverRidePanel');
+
+        hide(
+          'driverRidePanel'
+        );
+
 
         setStatus(
           'driverStatus',
           'Ride cancelled. Driver available again.',
           'warn'
         );
+
       }
 
+
       if(myRole === 'passenger'){
-        hide('passengerRidePanel');
+
+        hide(
+          'passengerRidePanel'
+        );
+
 
         setStatus(
           'passengerStatus',
           'Ride cancelled.'
         );
+
       }
 
       break;
 
+
+
+    /* =====================================================
+       RIDE CANCELLED FOR DRIVER
+    ===================================================== */
 
     case 'ride_cancelled':
 
       if(
         myRole === 'driver' &&
-        offerRideId === m.rideId
+        offerRideId ===
+          m.rideId
       ){
-        closeRideOffer('Ride cancelled');
+
+        closeRideOffer(
+          'Ride cancelled'
+        );
+
       }
 
       break;
 
+
+
+    /* =====================================================
+       SERVER ERROR
+    ===================================================== */
+
+    case 'error':
+
+      toast(
+        m.message ||
+        'Server error'
+      );
+
+      break;
+
+
+
+    /* =====================================================
+       STATE REJECTED
+    ===================================================== */
+
+    case 'state_rejected':
+
+      toast(
+        'Action not allowed. Current ride status: ' +
+        (m.currentState || 'unknown')
+      );
+
+      /*
+       * Refresh the driver's current ride
+       * display without changing server state.
+       */
+
+      renderDriverRide();
+
+      break;
+
   }
+
 }
+
 
 
 /* =========================================================
@@ -1060,94 +1654,180 @@ function handleMessage(m){
 
 function showRideOffer(m){
 
-  if(!m.ride) return;
-
-  /*
-   * Ignore duplicates for the same offer.
-   */
-  if(
-    offerActive &&
-    offerRideId === m.ride.id
-  ){
+  if(!m.ride){
     return;
   }
 
-  currentRide = m.ride;
 
-  offerRideId = m.ride.id;
-  offerActive = true;
+  /*
+   * Ignore duplicate offers.
+   */
+
+  if(
+    offerActive &&
+    offerRideId ===
+      m.ride.id
+  ){
+
+    return;
+  }
+
+
+  currentRide =
+    m.ride;
+
+
+  offerRideId =
+    m.ride.id;
+
+
+  offerActive =
+    true;
+
 
   offerSecondsLeft =
-    Number(m.callSeconds) || 20;
+    Number(
+      m.callSeconds
+    ) || 20;
+
 
   $('offerPassenger').textContent =
-    m.ride.passengerName || 'Passenger';
+    m.ride.passengerName ||
+    'Passenger';
+
 
   $('offerPickup').textContent =
-    m.ride.pickup || '-';
+    m.ride.pickup ||
+    '-';
+
 
   $('offerDestination').textContent =
-    m.ride.destination || '-';
+    m.ride.destination ||
+    '-';
+
 
   $('offerPax').textContent =
-    m.ride.pax || 1;
+    m.ride.pax ||
+    1;
+
 
   $('offerFare').textContent =
-    Number(m.ride.fare || 0).toFixed(2);
+    Number(
+      m.ride.fare ||
+      0
+    ).toFixed(2);
+
 
   $('offerDistance').textContent =
     m.nearbyKm == null
       ? '-'
-      : Number(m.nearbyKm).toFixed(2) + ' km';
+      : Number(
+          m.nearbyKm
+        ).toFixed(2) +
+        ' km';
+
 
   $('callCountdown').textContent =
     offerSecondsLeft;
 
-  show('rideModal');
-
-  startRideSound();
-  startOfferCountdown();
 
   /*
-   * Extra phone vibration immediately.
+   * Reset buttons.
    */
+
+  $('takeRideBtn').disabled =
+    false;
+
+  $('passRideBtn').disabled =
+    false;
+
+
+  show(
+    'rideModal'
+  );
+
+
+  startRideSound();
+
+  startOfferCountdown();
+
+
   if(navigator.vibrate){
+
     try{
+
       navigator.vibrate([
-        500,150,500,150,500
+        500,
+        150,
+        500,
+        150,
+        500
       ]);
+
     }catch(e){}
+
   }
+
 }
 
+
+
+/* =========================================================
+   OFFER COUNTDOWN
+========================================================= */
 
 function startOfferCountdown(){
 
-  clearInterval(offerTimer);
+  clearInterval(
+    offerTimer
+  );
 
-  offerTimer = setInterval(()=>{
 
-    if(!offerActive){
-      clearInterval(offerTimer);
-      offerTimer = null;
-      return;
-    }
+  offerTimer =
+    setInterval(()=>{
 
-    offerSecondsLeft--;
+      if(!offerActive){
 
-    $('callCountdown').textContent =
-      Math.max(0,offerSecondsLeft);
+        clearInterval(
+          offerTimer
+        );
 
-    if(offerSecondsLeft <= 0){
+        offerTimer = null;
 
-      clearInterval(offerTimer);
-      offerTimer = null;
+        return;
 
-      timeoutCurrentOffer();
-    }
+      }
 
-  },1000);
+
+      offerSecondsLeft--;
+
+
+      $('callCountdown').textContent =
+        Math.max(
+          0,
+          offerSecondsLeft
+        );
+
+
+      if(
+        offerSecondsLeft <= 0
+      ){
+
+        clearInterval(
+          offerTimer
+        );
+
+        offerTimer = null;
+
+
+        timeoutCurrentOffer();
+
+      }
+
+    },1000);
+
 }
+
 
 
 /* =========================================================
@@ -1156,52 +1836,89 @@ function startOfferCountdown(){
 
 function takeRide(){
 
-  if(!offerActive || !offerRideId){
+  if(
+    !offerActive ||
+    !offerRideId
+  ){
+
     return;
+
   }
 
-  const rideId = offerRideId;
+
+  const rideId =
+    offerRideId;
+
 
   /*
-   * Lock the UI immediately so double-clicks cannot
-   * send multiple accepts.
+   * Lock immediately.
    */
-  offerActive = false;
+
+  offerActive =
+    false;
+
 
   stopRideSound();
 
-  clearInterval(offerTimer);
+
+  clearInterval(
+    offerTimer
+  );
+
   offerTimer = null;
 
-  $('takeRideBtn').disabled = true;
-  $('passRideBtn').disabled = true;
 
-  const sent = send({
-    type:'driver_accept',
-    rideId
-  });
+  $('takeRideBtn').disabled =
+    true;
+
+  $('passRideBtn').disabled =
+    true;
+
+
+  const sent =
+    send({
+      type:'driver_accept',
+      rideId
+    });
+
 
   if(!sent){
 
-    $('takeRideBtn').disabled = false;
-    $('passRideBtn').disabled = false;
+    $('takeRideBtn').disabled =
+      false;
 
-    offerActive = true;
+    $('passRideBtn').disabled =
+      false;
+
+
+    offerActive =
+      true;
+
 
     startRideSound();
+
     return;
+
   }
 
-  hide('rideModal');
 
-  offerRideId = null;
+  hide(
+    'rideModal'
+  );
+
+
+  offerRideId =
+    null;
+
 
   setStatus(
     'driverStatus',
     'Accepting ride...',
     'good'
   );
+
 }
+
 
 
 /* =========================================================
@@ -1210,85 +1927,130 @@ function takeRide(){
 
 function passRide(){
 
-  if(!offerActive || !offerRideId){
+  if(
+    !offerActive ||
+    !offerRideId
+  ){
+
     return;
+
   }
 
-  const rideId = offerRideId;
 
-  /*
-   * Immediately stop sound and close the foreground
-   * screen. The server then moves the ride to the
-   * next driver.
-   */
-  offerActive = false;
+  const rideId =
+    offerRideId;
+
+
+  offerActive =
+    false;
+
 
   stopRideSound();
 
-  clearInterval(offerTimer);
+
+  clearInterval(
+    offerTimer
+  );
+
   offerTimer = null;
 
-  $('takeRideBtn').disabled = true;
-  $('passRideBtn').disabled = true;
+
+  $('takeRideBtn').disabled =
+    true;
+
+  $('passRideBtn').disabled =
+    true;
+
 
   send({
     type:'driver_pass',
     rideId
   });
 
-  hide('rideModal');
 
-  offerRideId = null;
+  hide(
+    'rideModal'
+  );
+
+
+  offerRideId =
+    null;
+
 
   setStatus(
     'driverStatus',
     'Ride passed. Waiting for next offer.',
     'warn'
   );
+
 }
 
 
+
 /* =========================================================
-   TIMEOUT
+   OFFER TIMEOUT
 ========================================================= */
 
 function timeoutCurrentOffer(){
 
-  if(!offerActive || !offerRideId){
+  if(
+    !offerActive ||
+    !offerRideId
+  ){
+
     return;
+
   }
 
-  const rideId = offerRideId;
 
-  offerActive = false;
+  const rideId =
+    offerRideId;
+
+
+  offerActive =
+    false;
+
 
   stopRideSound();
 
-  clearInterval(offerTimer);
+
+  clearInterval(
+    offerTimer
+  );
+
   offerTimer = null;
 
-  $('takeRideBtn').disabled = true;
-  $('passRideBtn').disabled = true;
 
-  /*
-   * Server receives driver_timeout and immediately
-   * offers the ride to the next driver.
-   */
+  $('takeRideBtn').disabled =
+    true;
+
+  $('passRideBtn').disabled =
+    true;
+
+
   send({
     type:'driver_timeout',
     rideId
   });
 
-  hide('rideModal');
 
-  offerRideId = null;
+  hide(
+    'rideModal'
+  );
+
+
+  offerRideId =
+    null;
+
 
   setStatus(
     'driverStatus',
-    'Offer timed out. Waiting for next driver offer.',
+    'Offer timed out. Waiting for next offer.',
     'warn'
   );
+
 }
+
 
 
 /* =========================================================
@@ -1297,131 +2059,420 @@ function timeoutCurrentOffer(){
 
 function closeRideOffer(reason){
 
-  offerActive = false;
+  offerActive =
+    false;
 
-  clearInterval(offerTimer);
+
+  clearInterval(
+    offerTimer
+  );
+
   offerTimer = null;
+
 
   stopRideSound();
 
-  hide('rideModal');
 
-  offerRideId = null;
+  hide(
+    'rideModal'
+  );
 
-  $('takeRideBtn').disabled = false;
-  $('passRideBtn').disabled = false;
+
+  offerRideId =
+    null;
+
+
+  $('takeRideBtn').disabled =
+    false;
+
+  $('passRideBtn').disabled =
+    false;
+
 
   if(reason){
-    console.log(reason);
+
+    console.log(
+      reason
+    );
+
   }
+
 }
 
 
+
 /* =========================================================
-   DRIVER RIDE
+   DRIVER CURRENT RIDE
 ========================================================= */
 
 function renderDriverRide(){
 
   if(!currentRide){
-    hide('driverRidePanel');
+
+    hide(
+      'driverRidePanel'
+    );
+
     return;
+
   }
 
-  show('driverRidePanel');
+
+  show(
+    'driverRidePanel'
+  );
+
 
   $('driverRideInfo').innerHTML = `
-    <p><b>Passenger:</b>
-      ${escapeHtml(currentRide.passengerName || '-')}
+
+    <p>
+      <b>Passenger:</b>
+      ${escapeHtml(
+        currentRide.passengerName ||
+        '-'
+      )}
     </p>
 
-    <p><b>Pickup:</b>
-      ${escapeHtml(currentRide.pickup || '-')}
+    <p>
+      <b>Pickup:</b>
+      ${escapeHtml(
+        currentRide.pickup ||
+        '-'
+      )}
     </p>
 
-    <p><b>Destination:</b>
-      ${escapeHtml(currentRide.destination || '-')}
+    <p>
+      <b>Destination:</b>
+      ${escapeHtml(
+        currentRide.destination ||
+        '-'
+      )}
     </p>
 
-    <p><b>Passengers:</b>
+    <p>
+      <b>Passengers:</b>
       ${currentRide.pax || 1}
     </p>
 
-    <p><b>Fare:</b>
-      $${Number(currentRide.fare || 0).toFixed(2)}
+    <p>
+      <b>Fare:</b>
+      $${Number(
+        currentRide.fare ||
+        0
+      ).toFixed(2)}
     </p>
+
   `;
+
+
+  /*
+   * Hide every action first.
+   */
+
+  hide(
+    'driverArrivedBtn'
+  );
+
+  hide(
+    'driverStartBtn'
+  );
+
+  hide(
+    'driverCompleteBtn'
+  );
+
+
+  /*
+   * =======================================================
+   * ACCEPTED
+   *
+   * Driver has accepted the ride.
+   *
+   * Show:
+   *
+   * GO PICK UP — Passenger Name
+   * =======================================================
+   */
+
+  if(
+    currentRide.status ===
+      'accepted'
+  ){
+
+    $('driverArrivedBtn').textContent =
+      'GO PICK UP — ' +
+      (
+        currentRide.passengerName ||
+        'PASSENGER'
+      );
+
+
+    show(
+      'driverArrivedBtn'
+    );
+
+    return;
+  }
+
+
+
+  /*
+   * =======================================================
+   * GOING TO PICKUP
+   *
+   * Driver pressed GO PICK UP.
+   *
+   * Show:
+   *
+   * ARRIVED
+   * =======================================================
+   */
+
+  if(
+    currentRide.status ===
+      'going_to_pickup'
+  ){
+
+    $('driverArrivedBtn').textContent =
+      'ARRIVED';
+
+
+    show(
+      'driverArrivedBtn'
+    );
+
+    return;
+  }
+
+
+
+  /*
+   * =======================================================
+   * ARRIVED
+   *
+   * Driver reached passenger.
+   *
+   * Show:
+   *
+   * START RIDE
+   * =======================================================
+   */
+
+  if(
+    currentRide.status ===
+      'arrived'
+  ){
+
+    show(
+      'driverStartBtn'
+    );
+
+    return;
+  }
+
+
+
+  /*
+   * =======================================================
+   * STARTED
+   *
+   * Passenger is now onboard.
+   *
+   * Show:
+   *
+   * DROP OFF — Passenger Name
+   * =======================================================
+   */
+
+  if(
+    currentRide.status ===
+      'started'
+  ){
+
+    $('driverCompleteBtn').textContent =
+      'DROP OFF — ' +
+      (
+        currentRide.passengerName ||
+        'PASSENGER'
+      );
+
+
+    show(
+      'driverCompleteBtn'
+    );
+
+    return;
+  }
+
 }
 
 
+
+/* =========================================================
+   DRIVER STATE ACTION
+========================================================= */
+
 function driverRideState(state){
 
-  if(!currentRide) return;
+  if(!currentRide){
+
+    return;
+
+  }
+
 
   send({
     type:'ride_state',
     rideId:currentRide.id,
     state
   });
+
 }
 
 
+
 /* =========================================================
-   PASSENGER RIDE
+   PASSENGER CURRENT RIDE
 ========================================================= */
 
 function renderPassengerRide(){
 
   if(!currentRide){
-    hide('passengerRidePanel');
+
+    hide(
+      'passengerRidePanel'
+    );
+
     return;
+
   }
 
-  show('passengerRidePanel');
+
+  show(
+    'passengerRidePanel'
+  );
+
+
+  let statusText =
+    'Searching for driver...';
+
+
+  if(currentRide.status){
+
+    const statuses = {
+
+      accepted:
+        'Driver accepted your ride.',
+
+      going_to_pickup:
+        'Driver is going to pick you up.',
+
+      arrived:
+        'Driver has arrived.',
+
+      started:
+        'Ride is in progress.',
+
+      completed:
+        'Ride completed.',
+
+      cancelled:
+        'Ride cancelled.'
+
+    };
+
+
+    statusText =
+      statuses[
+        currentRide.status
+      ] ||
+      currentRide.status;
+
+  }
+
 
   $('passengerRideInfo').innerHTML = `
-    <p><b>Pickup:</b>
-      ${escapeHtml(currentRide.pickup || '-')}
+
+    <p>
+      <b>Status:</b>
+      ${escapeHtml(statusText)}
     </p>
 
-    <p><b>Destination:</b>
-      ${escapeHtml(currentRide.destination || '-')}
+    <p>
+      <b>Pickup:</b>
+      ${escapeHtml(
+        currentRide.pickup ||
+        '-'
+      )}
     </p>
 
-    <p><b>Passengers:</b>
+    <p>
+      <b>Destination:</b>
+      ${escapeHtml(
+        currentRide.destination ||
+        '-'
+      )}
+    </p>
+
+    <p>
+      <b>Passengers:</b>
       ${currentRide.pax || 1}
     </p>
 
-    <p><b>Fare:</b>
-      $${Number(currentRide.fare || 0).toFixed(2)}
+    <p>
+      <b>Fare:</b>
+      $${Number(
+        currentRide.fare ||
+        0
+      ).toFixed(2)}
     </p>
 
-    <p><b>Driver:</b>
-      ${escapeHtml(currentRide.driverName || '-')}
+    <p>
+      <b>Driver:</b>
+      ${escapeHtml(
+        currentRide.driverName ||
+        '-'
+      )}
     </p>
+
   `;
+
 }
 
 
+
 /* =========================================================
-   REQUEST RIDE
+   REQUEST PASSENGER RIDE
 ========================================================= */
 
 async function requestRide(){
 
   unlockAudio();
 
+
   const pickup =
-    $('pickup').value.trim();
+    $('pickup')
+      .value
+      .trim();
+
 
   const destination =
-    $('destination').value.trim();
+    $('destination')
+      .value
+      .trim();
+
 
   const pax =
-    Number($('pax').value) || 1;
+    Number(
+      $('pax').value
+    ) || 1;
+
 
   const fare =
-    Number($('fare').value) || 0;
+    Number(
+      $('fare').value
+    ) || 0;
+
 
   if(pickup.length < 3){
 
@@ -1432,7 +2483,9 @@ async function requestRide(){
     );
 
     return;
+
   }
+
 
   if(destination.length < 3){
 
@@ -1443,7 +2496,9 @@ async function requestRide(){
     );
 
     return;
+
   }
+
 
   setStatus(
     'passengerStatus',
@@ -1451,82 +2506,148 @@ async function requestRide(){
     'warn'
   );
 
-  const pickupCoords =
-    await geocodeOne(pickup);
 
-  /*
-   * Destination coordinates are not currently required
-   * by server.js, but we still attempt to resolve pickup.
-   */
+  const pickupCoords =
+    await geocodeOne(
+      pickup
+    );
+
 
   const ride = {
+
     pickup,
+
     destination,
+
     pax,
+
     fare,
+
     pickupCoords
+
   };
 
-  const sent = send({
-    type:'passenger_offer',
-    ride
-  });
+
+  const sent =
+    send({
+
+      type:'passenger_offer',
+
+      ride
+
+    });
+
 
   if(sent){
 
-    show('passengerRidePanel');
+    currentRide = {
 
-    $('passengerRideInfo').innerHTML = `
-      <p><b>Pickup:</b>
-        ${escapeHtml(pickup)}
-      </p>
+      pickup,
 
-      <p><b>Destination:</b>
-        ${escapeHtml(destination)}
-      </p>
+      destination,
 
-      <p><b>Passengers:</b>
-        ${pax}
-      </p>
+      pax,
 
-      <p><b>Fare:</b>
-        $${fare.toFixed(2)}
-      </p>
-    `;
+      fare,
+
+      pickupCoords,
+
+      status:'searching'
+
+    };
+
+
+    show(
+      'passengerRidePanel'
+    );
+
+
+    renderPassengerRide();
+
 
     setStatus(
       'passengerStatus',
       'Searching for a driver...',
       'warn'
     );
+
   }
+
 }
 
 
+
 /* =========================================================
-   CANCEL RIDE
+   PASSENGER CANCEL RIDE
 ========================================================= */
 
 function cancelRide(){
 
-  if(!currentRide || !currentRide.id){
+  if(
+    !currentRide ||
+    !currentRide.id
+  ){
+
     return;
+
   }
 
+
   send({
+
     type:'cancel_ride',
-    rideId:currentRide.id
+
+    rideId:
+      currentRide.id
+
   });
 
-  currentRide = null;
 
-  hide('passengerRidePanel');
+  currentRide =
+    null;
+
+
+  hide(
+    'passengerRidePanel'
+  );
+
 
   setStatus(
     'passengerStatus',
     'Ride cancelled.'
   );
+
 }
+
+
+
+/* =========================================================
+   DRIVER CANCEL RIDE
+========================================================= */
+
+function cancelDriverRide(){
+
+  if(
+    !currentRide ||
+    !currentRide.id
+  ){
+
+    return;
+
+  }
+
+
+  send({
+
+    type:'cancel_ride',
+
+    rideId:
+      currentRide.id
+
+  });
+
+}
+
 
 
 /* =========================================================
@@ -1535,42 +2656,72 @@ function cancelRide(){
 
 function startLocationTracking(){
 
-  if(!navigator.geolocation){
+  if(
+    !navigator.geolocation
+  ){
+
     return;
+
   }
 
-  if(geoWatch !== null){
+
+  if(
+    geoWatch !== null
+  ){
+
     return;
+
   }
+
 
   geoWatch =
     navigator.geolocation.watchPosition(
+
       position=>{
 
         send({
+
           type:'location',
-          lat:position.coords.latitude,
-          lng:position.coords.longitude
+
+          lat:
+            position.coords.latitude,
+
+          lng:
+            position.coords.longitude
+
         });
 
       },
+
+
       error=>{
+
         console.log(
           'Location unavailable',
           error.message
         );
+
       },
+
+
       {
+
         enableHighAccuracy:true,
+
         maximumAge:5000,
+
         timeout:10000
+
       }
+
     );
+
 }
 
 
+
 /* =========================================================
-   ADDRESS SEARCH
+   ADDRESS LOOKUP
 ========================================================= */
 
 async function geocodeOne(q){
@@ -1583,21 +2734,41 @@ async function geocodeOne(q){
         encodeURIComponent(q)
       );
 
+
     if(!response.ok){
+
       return null;
+
     }
+
 
     const results =
       await response.json();
 
-    if(!results.length){
+
+    if(
+      !results.length
+    ){
+
       return null;
+
     }
 
+
     return {
-      lat:Number(results[0].lat),
-      lng:Number(results[0].lon)
+
+      lat:
+        Number(
+          results[0].lat
+        ),
+
+      lng:
+        Number(
+          results[0].lon
+        )
+
     };
+
 
   }catch(e){
 
@@ -1606,172 +2777,374 @@ async function geocodeOne(q){
       e
     );
 
+
     return null;
+
   }
+
 }
 
 
+
 /* =========================================================
-   ESCAPE HTML
+   HTML ESCAPE
 ========================================================= */
 
 function escapeHtml(value){
 
-  return String(value ?? '')
-    .replaceAll('&','&amp;')
-    .replaceAll('<','&lt;')
-    .replaceAll('>','&gt;')
-    .replaceAll('"','&quot;')
-    .replaceAll("'","&#039;");
+  return String(
+    value ?? ''
+  )
+
+  .replaceAll(
+    '&',
+    '&amp;'
+  )
+
+  .replaceAll(
+    '<',
+    '&lt;'
+  )
+
+  .replaceAll(
+    '>',
+    '&gt;'
+  )
+
+  .replaceAll(
+    '"',
+    '&quot;'
+  )
+
+  .replaceAll(
+    "'",
+    '&#039;'
+  );
+
 }
 
 
+
 /* =========================================================
-   BUTTON EVENTS
+   HOME BUTTONS
 ========================================================= */
 
-$('driverAppBtn').addEventListener(
-  'click',
-  ()=>{
-    unlockAudio();
-    startRole('driver');
-  }
-);
+$('driverAppBtn')
+  .addEventListener(
+    'click',
+    ()=>{
+
+      unlockAudio();
+
+      startRole(
+        'driver'
+      );
+
+    }
+  );
 
 
-$('passengerAppBtn').addEventListener(
-  'click',
-  ()=>{
-    unlockAudio();
-    startRole('passenger');
-  }
-);
+$('passengerAppBtn')
+  .addEventListener(
+    'click',
+    ()=>{
+
+      unlockAudio();
+
+      startRole(
+        'passenger'
+      );
+
+    }
+  );
 
 
-/* DRIVER */
 
-$('driverOnlineBtn').addEventListener(
-  'click',
-  ()=>{
-    unlockAudio();
+/* =========================================================
+   DRIVER ONLINE
+========================================================= */
 
-    send({
-      type:'driver_status',
-      online:true
-    });
+$('driverOnlineBtn')
+  .addEventListener(
+    'click',
+    ()=>{
 
-    setStatus(
-      'driverStatus',
-      'Driver is ONLINE and available.',
-      'good'
-    );
-  }
-);
+      unlockAudio();
 
 
-$('driverOfflineBtn').addEventListener(
-  'click',
-  ()=>{
+      send({
 
-    send({
-      type:'driver_status',
-      online:false
-    });
+        type:'driver_status',
 
-    closeRideOffer(
-      'Driver went offline'
-    );
+        online:true
 
-    setStatus(
-      'driverStatus',
-      'Driver is OFFLINE.',
-      'warn'
-    );
-  }
-);
+      });
 
 
-$('takeRideBtn').addEventListener(
-  'click',
-  takeRide
-);
+      setStatus(
+        'driverStatus',
+        'Driver is ONLINE and available.',
+        'good'
+      );
+
+    }
+  );
 
 
-$('passRideBtn').addEventListener(
-  'click',
-  passRide
-);
+
+/* =========================================================
+   DRIVER OFFLINE
+========================================================= */
+
+$('driverOfflineBtn')
+  .addEventListener(
+    'click',
+    ()=>{
+
+      send({
+
+        type:'driver_status',
+
+        online:false
+
+      });
 
 
-$('driverArrivedBtn').addEventListener(
-  'click',
-  ()=>{
-    driverRideState('arrived');
-  }
-);
+      closeRideOffer(
+        'Driver went offline'
+      );
 
 
-$('driverPickedBtn').addEventListener(
-  'click',
-  ()=>{
-    driverRideState('picked_up');
-  }
-);
+      setStatus(
+        'driverStatus',
+        'Driver is OFFLINE.',
+        'warn'
+      );
+
+    }
+  );
 
 
-$('driverCompleteBtn').addEventListener(
-  'click',
-  ()=>{
-    driverRideState('completed');
-  }
-);
+
+/* =========================================================
+   TAKE RIDE
+========================================================= */
+
+$('takeRideBtn')
+  .addEventListener(
+    'click',
+    takeRide
+  );
 
 
-$('driverCancelBtn').addEventListener(
-  'click',
-  ()=>{
-    if(!currentRide) return;
 
-    send({
-      type:'cancel_ride',
-      rideId:currentRide.id
-    });
-  }
-);
+/* =========================================================
+   PASS RIDE
+========================================================= */
 
-
-$('backFromDriverBtn').addEventListener(
-  'click',
-  ()=>{
-    closeRideOffer('Back');
-
-    hide('driverSection');
-    show('homeSection');
-  }
-);
+$('passRideBtn')
+  .addEventListener(
+    'click',
+    passRide
+  );
 
 
-/* PASSENGER */
 
-$('requestRideBtn').addEventListener(
-  'click',
-  requestRide
-);
+/* =========================================================
+   DRIVER FIRST ACTION
+========================================================= */
+
+$('driverArrivedBtn')
+  .addEventListener(
+    'click',
+    ()=>{
+
+      if(!currentRide){
+
+        return;
+
+      }
 
 
-$('passengerCancelBtn').addEventListener(
-  'click',
-  cancelRide
-);
+      /*
+       * ACCEPTED → GOING TO PICKUP
+       *
+       * The button says:
+       *
+       * GO PICK UP — Passenger
+       */
+
+      if(
+        currentRide.status ===
+          'accepted'
+      ){
+
+        driverRideState(
+          'going_to_pickup'
+        );
+
+        return;
+
+      }
 
 
-$('backFromPassengerBtn').addEventListener(
-  'click',
-  ()=>{
-    hide('passengerSection');
-    show('homeSection');
-  }
-);
+      /*
+       * GOING TO PICKUP → ARRIVED
+       */
+
+      if(
+        currentRide.status ===
+          'going_to_pickup'
+      ){
+
+        driverRideState(
+          'arrived'
+        );
+
+        return;
+
+      }
+
+    }
+  );
+
+
+
+/* =========================================================
+   START RIDE
+========================================================= */
+
+$('driverStartBtn')
+  .addEventListener(
+    'click',
+    ()=>{
+
+      if(!currentRide){
+
+        return;
+
+      }
+
+
+      driverRideState(
+        'started'
+      );
+
+    }
+  );
+
+
+
+/* =========================================================
+   DROP OFF
+========================================================= */
+
+$('driverCompleteBtn')
+  .addEventListener(
+    'click',
+    ()=>{
+
+      if(!currentRide){
+
+        return;
+
+      }
+
+
+      driverRideState(
+        'completed'
+      );
+
+    }
+  );
+
+
+
+/* =========================================================
+   DRIVER CANCEL
+========================================================= */
+
+$('driverCancelBtn')
+  .addEventListener(
+    'click',
+    cancelDriverRide
+  );
+
+
+
+/* =========================================================
+   DRIVER BACK
+========================================================= */
+
+$('backFromDriverBtn')
+  .addEventListener(
+    'click',
+    ()=>{
+
+      closeRideOffer(
+        'Back'
+      );
+
+
+      hide(
+        'driverSection'
+      );
+
+
+      show(
+        'homeSection'
+      );
+
+    }
+  );
+
+
+
+/* =========================================================
+   PASSENGER REQUEST
+========================================================= */
+
+$('requestRideBtn')
+  .addEventListener(
+    'click',
+    requestRide
+  );
+
+
+
+/* =========================================================
+   PASSENGER CANCEL
+========================================================= */
+
+$('passengerCancelBtn')
+  .addEventListener(
+    'click',
+    cancelRide
+  );
+
+
+
+/* =========================================================
+   PASSENGER BACK
+========================================================= */
+
+$('backFromPassengerBtn')
+  .addEventListener(
+    'click',
+    ()=>{
+
+      hide(
+        'passengerSection'
+      );
+
+
+      show(
+        'homeSection'
+      );
+
+    }
+  );
+
 
 
 /* =========================================================
@@ -1781,34 +3154,38 @@ $('backFromPassengerBtn').addEventListener(
 connect();
 
 
-/*
- * Stop the alarm if the page becomes hidden.
- *
- * We still keep the offer active. When the page becomes
- * visible again the countdown continues.
- */
+
+/* =========================================================
+   PAGE VISIBILITY
+========================================================= */
+
 document.addEventListener(
   'visibilitychange',
   ()=>{
-    if(document.hidden){
-      /*
-       * Do not cancel the ride.
-       * Browser background restrictions can prevent
-       * continuous sound, but the server remains in
-       * control of the 20-second timeout.
-       */
-    }
+
+    /*
+     * Do not cancel a ride if the browser tab
+     * becomes hidden.
+     *
+     * The SERVER remains responsible for the
+     * 20-second ride offer timeout.
+     */
+
   }
 );
 
 
-/*
- * Safety cleanup when leaving the page.
- */
+
+/* =========================================================
+   PAGE EXIT
+========================================================= */
+
 window.addEventListener(
   'beforeunload',
   ()=>{
+
     stopRideSound();
+
   }
 );
 
