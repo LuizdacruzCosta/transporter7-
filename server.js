@@ -1,1367 +1,996 @@
-const express = require('express');
-const http = require('http');
-const WebSocket = require('ws');
+const express = require("express");
+const http = require("http");
+const WebSocket = require("ws");
+const crypto = require("crypto");
 
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-app.use(express.static('public'));
+app.use(express.json());
+app.use(express.static("public"));
 
-app.get('/health', (_, res) =>
+app.get("/health", (_req, res) => {
   res.json({
     ok: true,
-    service: 'Transporter7'
-  })
-);
-
-app.get('/api/address', async (req, res) => {
-
-  const q = String(req.query.q || '').trim();
-
-  if (q.length < 3) {
-    return res.json([]);
-  }
-
-  try {
-
-    const x = await fetch(
-      'https://nominatim.openstreetmap.org/search?format=jsonv2&limit=5&q=' +
-      encodeURIComponent(q),
-      {
-        headers:{
-          'User-Agent':'Transporter7/2.0'
-        }
-      }
-    );
-
-    if (!x.ok) {
-      return res.json([]);
-    }
-
-    const data = await x.json();
-
-    res.json(
-      data.map(a => ({
-        display_name:a.display_name,
-        lat:a.lat,
-        lon:a.lon
-      }))
-    );
-
-  } catch(e){
-
-    res.json([]);
-
-  }
-
+    service: "RideShare",
+    version: "2.0.0",
+    time: new Date().toISOString()
+  });
 });
 
-
-// ===============================
-// STORAGE
-// ===============================
-
-const users = new Map();
+const clients = new Map();
+const drivers = new Map();
 const rides = new Map();
 
-let seq = 1000;
+const TERMINAL_STATUSES = new Set(["completed", "cancelled"]);
 
-const OFFER_SECONDS = 20;
+function now() {
+  return new Date().toISOString();
+}
 
-
-// ===============================
-// SEND
-// ===============================
-
-function send(ws,message){
-
-  if(
-    ws &&
-    ws.readyState === WebSocket.OPEN
-  ){
-    ws.send(
-      JSON.stringify(message)
-    );
+function send(ws, message) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(message));
   }
-
 }
 
+function sendTo(clientId, message) {
+  const client = clients.get(clientId);
+  if (client) send(client.ws, message);
+}
 
-// ===============================
-// DRIVERS
-// ===============================
+function broadcast(message, predicate = () => true) {
+  for (const client of clients.values()) {
+    if (predicate(client)) send(client.ws, message);
+  }
+}
 
-function drivers(){
+function safeText(value, max = 200) {
+  return String(value ?? "").trim().slice(0, max);
+}
 
-  return [
-    ...users.values()
-  ].filter(
-    u =>
-      u.role === 'driver' &&
-      u.online &&
-      u.available &&
-      u.ws.readyState === WebSocket.OPEN
+function activeRideForRider(riderId) {
+  return [...rides.values()].find(
+    ride =>
+      ride.riderId === riderId &&
+      !TERMINAL_STATUSES.has(ride.status)
   );
-
 }
 
+function activeRideForDriver(driverId) {
+  return [...rides.values()].find(
+    ride =>
+      ride.driverId === driverId &&
+      !TERMINAL_STATUSES.has(ride.status)
+  );
+}
 
-function count(){
+function availableDrivers() {
+  return [...drivers.values()].filter(
+    driver => driver.online && !driver.rideId
+  );
+}
 
-  const n = drivers().length;
+function publicRide(ride) {
+  return {
+    id: ride.id,
+    riderId: ride.riderId,
+    riderName: ride.riderName,
+    driverId: ride.driverId,
+    driverName: ride.driverName,
+    pickup: ride.pickup,
+    destination: ride.destination,
+    status: ride.status,
+    createdAt: ride.createdAt,
+    acceptedAt: ride.acceptedAt,
+    arrivedAt: ride.arrivedAt,
+    startedAt: ride.startedAt,
+    completedAt: ride.completedAt,
+    cancelledAt: ride.cancelledAt,
+    driverLocation: ride.driverLocation
+  };
+}
 
-  for(const u of users.values()){
+function makeRide(rider, pickup, destination) {
+  return {
+    id: crypto.randomUUID(),
 
-    if(u.role === 'passenger'){
+    riderId: rider.id,
+    riderName: rider.name,
 
-      send(
-        u.ws,
-        {
-          type:'driver_count',
-          count:n
-        }
+    driverId: null,
+    driverName: null,
+
+    pickup,
+    destination,
+
+    status: "requested",
+
+    createdAt: now(),
+    acceptedAt: null,
+    arrivedAt: null,
+    startedAt: null,
+    completedAt: null,
+    cancelledAt: null,
+
+    driverLocation: null
+  };
+}
+
+function notifyRide(ride) {
+  sendTo(ride.riderId, {
+    type: "ride_update",
+    ride: publicRide(ride)
+  });
+
+  if (ride.driverId) {
+    sendTo(ride.driverId, {
+      type: "ride_update",
+      ride: publicRide(ride)
+    });
+  }
+}
+
+function notifyAvailableDrivers(ride) {
+  for (const driver of availableDrivers()) {
+    sendTo(driver.clientId, {
+      type: "ride_request",
+      ride: publicRide(ride)
+    });
+  }
+}
+
+function sendDriverSnapshot(clientId) {
+  const driver = drivers.get(clientId);
+
+  if (!driver) return;
+
+  const activeRide =
+    driver.rideId
+      ? rides.get(driver.rideId)
+      : null;
+
+  sendTo(clientId, {
+    type: "driver_state",
+
+    online: driver.online,
+
+    rideId: driver.rideId,
+
+    activeRide:
+      activeRide
+        ? publicRide(activeRide)
+        : null
+  });
+}
+
+function sendRiderSnapshot(clientId) {
+  const activeRide =
+    activeRideForRider(clientId);
+
+  sendTo(clientId, {
+    type: "rider_state",
+
+    activeRide:
+      activeRide
+        ? publicRide(activeRide)
+        : null,
+
+    driversAvailable:
+      availableDrivers().length
+  });
+}
+
+wss.on("connection", ws => {
+
+  const clientId =
+    crypto.randomUUID();
+
+  clients.set(clientId, {
+    id: clientId,
+    ws,
+    role: null,
+    name: "Guest"
+  });
+
+  send(ws, {
+    type: "connected",
+    clientId
+  });
+
+  ws.on("message", raw => {
+
+    let msg;
+
+    try {
+      msg = JSON.parse(
+        raw.toString()
       );
-
+    } catch {
+      return send(ws, {
+        type: "error",
+        message: "Invalid message."
+      });
     }
 
-  }
+    const client =
+      clients.get(clientId);
 
-}
+    if (!client) return;
 
+    switch (msg.type) {
 
-// ===============================
-// DISTANCE
-// ===============================
+      // =================================
+      // REGISTER
+      // =================================
 
-function dist(a,b){
+      case "register": {
 
-  if(
-    !a ||
-    !b ||
-    a.lat == null ||
-    a.lng == null ||
-    b.lat == null ||
-    b.lng == null
-  ){
-    return 999999;
-  }
+        const role =
+          msg.role === "driver"
+            ? "driver"
+            : "rider";
 
+        const name =
+          safeText(msg.name, 80) ||
+          (
+            role === "driver"
+              ? "Driver"
+              : "Rider"
+          );
 
-  const p = Math.PI / 180;
-  const R = 6371;
+        if (
+          client.role === "driver" &&
+          role !== "driver"
+        ) {
+          drivers.delete(clientId);
+        }
 
+        client.role = role;
+        client.name = name;
 
-  const dLat =
-    (b.lat-a.lat)*p;
+        if (role === "driver") {
 
+          const existing =
+            drivers.get(clientId);
 
-  const dLng =
-    (b.lng-a.lng)*p;
+          drivers.set(clientId, {
 
+            clientId,
 
-  const x =
-    Math.sin(dLat/2)**2 +
-    Math.cos(a.lat*p) *
-    Math.cos(b.lat*p) *
-    Math.sin(dLng/2)**2;
+            name,
 
+            online:
+              existing?.online ?? false,
 
-  return (
-    2 *
-    R *
-    Math.asin(
-      Math.sqrt(x)
-    )
-  );
+            rideId:
+              existing?.rideId ?? null,
 
-}
+            location:
+              existing?.location ?? null
 
+          });
 
-// ===============================
-// FINISH SEARCH
-// ===============================
+          sendDriverSnapshot(
+            clientId
+          );
 
-function finishSearch(
-  r,
-  messageType='no_driver'
-){
+        } else {
 
-  if(!r) return;
+          sendRiderSnapshot(
+            clientId
+          );
+        }
 
+        send(ws, {
+          type: "registered",
+          clientId,
+          role,
+          name
+        });
 
-  clearTimeout(
-    r.offerTimer
-  );
-
-
-  r.offerTimer=null;
-
-  r.currentDrivers=[];
-
-  r.status='no_driver';
-
-
-  const p =
-    users.get(
-      r.passengerId
-    );
-
-
-  if(p){
-    p.rideId=null;
-  }
-
-
-  send(
-    p?.ws,
-    {
-      type:messageType,
-      rideId:r.id
-    }
-  );
-
-}
-
-
-// ===============================
-// MULTI DRIVER OFFER
-// ===============================
-
-function offerDrivers(r){
-
-  if(
-    !r ||
-    r.status !== 'searching'
-  ){
-    return;
-  }
-
-
-  clearTimeout(
-    r.offerTimer
-  );
-
-
-  const available =
-    r.candidates
-    .map(id=>users.get(id))
-    .filter(
-      d =>
-        d &&
-        d.online &&
-        d.available &&
-        d.ws.readyState === WebSocket.OPEN
-    );
-
-
-  if(!available.length){
-
-    return finishSearch(r);
-
-  }
-
-
-  r.currentDrivers =
-    available.map(
-      d=>d.id
-    );
-
-
-  for(const d of available){
-
-    send(
-      d.ws,
-      {
-        type:'ride_call',
-        ride:r,
-        callSeconds:OFFER_SECONDS,
-        nearbyKm:dist(
-          d,
-          r.pickupCoords
-        )
+        break;
       }
-    );
-
-  }
 
 
-  r.offerTimer =
-    setTimeout(
-      ()=>{
+      // =================================
+      // DRIVER ONLINE / OFFLINE
+      // =================================
 
-        const current =
-          rides.get(r.id);
+      case "driver_online": {
+
+        const driver =
+          drivers.get(clientId);
+
+        if (!driver) {
+
+          return send(ws, {
+            type: "error",
+            message:
+              "Register as a driver first."
+          });
+
+        }
+
+        if (
+          driver.rideId &&
+          msg.online === false
+        ) {
+
+          return send(ws, {
+            type: "error",
+            message:
+              "Finish or cancel the current ride before going offline."
+          });
+
+        }
+
+        driver.online =
+          Boolean(msg.online);
+
+        sendDriverSnapshot(
+          clientId
+        );
+
+        if (driver.online) {
+
+          for (
+            const ride of rides.values()
+          ) {
+
+            if (
+              ride.status === "requested" &&
+              !ride.driverId
+            ) {
+
+              send(ws, {
+                type: "ride_request",
+                ride: publicRide(ride)
+              });
+
+            }
+
+          }
+
+        }
+
+        break;
+      }
 
 
-        if(
-          !current ||
-          current.status !== 'searching'
-        ){
+      // =================================
+      // REQUEST RIDE
+      // =================================
+
+      case "request_ride": {
+
+        if (
+          client.role !== "rider"
+        ) {
+
+          return send(ws, {
+            type: "error",
+            message:
+              "Only riders can request rides."
+          });
+
+        }
+
+        const pickup =
+          safeText(msg.pickup);
+
+        const destination =
+          safeText(msg.destination);
+
+        if (
+          !pickup ||
+          !destination
+        ) {
+
+          return send(ws, {
+            type: "error",
+            message:
+              "Enter both pickup and destination."
+          });
+
+        }
+
+        if (
+          activeRideForRider(clientId)
+        ) {
+
+          return send(ws, {
+            type: "error",
+            message:
+              "You already have an active ride."
+          });
+
+        }
+
+        const ride =
+          makeRide(
+            client,
+            pickup,
+            destination
+          );
+
+        rides.set(
+          ride.id,
+          ride
+        );
+
+        send(ws, {
+          type: "ride_created",
+
+          ride:
+            publicRide(ride),
+
+          driversAvailable:
+            availableDrivers().length
+        });
+
+        notifyAvailableDrivers(
+          ride
+        );
+
+        break;
+      }
+
+
+      // =================================
+      // ACCEPT RIDE
+      // =================================
+
+      case "accept_ride": {
+
+        const driver =
+          drivers.get(clientId);
+
+        const ride =
+          rides.get(msg.rideId);
+
+        if (
+          !driver ||
+          !ride
+        ) {
+
+          return send(ws, {
+            type: "error",
+            message:
+              "Ride not found."
+          });
+
+        }
+
+        if (
+          !driver.online ||
+          driver.rideId
+        ) {
+
+          return send(ws, {
+            type: "error",
+            message:
+              "You are not available for this ride."
+          });
+
+        }
+
+        if (
+          ride.status !== "requested" ||
+          ride.driverId
+        ) {
+
+          return send(ws, {
+            type: "error",
+            message:
+              "This ride was already accepted by another driver."
+          });
+
+        }
+
+        ride.driverId =
+          clientId;
+
+        ride.driverName =
+          driver.name;
+
+        ride.status =
+          "accepted";
+
+        ride.acceptedAt =
+          now();
+
+        driver.rideId =
+          ride.id;
+
+        notifyRide(
+          ride
+        );
+
+        // Remove this ride from
+        // every other driver's list.
+
+        broadcast(
+          {
+            type:
+              "ride_unavailable",
+
+            rideId:
+              ride.id
+          },
+
+          c =>
+            c.role === "driver" &&
+            c.id !== clientId
+        );
+
+        sendDriverSnapshot(
+          clientId
+        );
+
+        break;
+      }
+
+
+      // =================================
+      // DRIVER RIDE STATE
+      //
+      // accepted
+      //     ↓
+      // arrived
+      //     ↓
+      // in_progress
+      //     ↓
+      // completed
+      // =================================
+
+      case "update_ride": {
+
+        const ride =
+          rides.get(msg.rideId);
+
+        if (!ride) {
+
+          return send(ws, {
+            type: "error",
+            message:
+              "Ride not found."
+          });
+
+        }
+
+        if (
+          ride.driverId !== clientId
+        ) {
+
+          return send(ws, {
+            type: "error",
+            message:
+              "Only the assigned driver can update this ride."
+          });
+
+        }
+
+        const transitions = {
+
+          accepted:
+            "arrived",
+
+          arrived:
+            "in_progress",
+
+          in_progress:
+            "completed"
+
+        };
+
+        const nextStatus =
+          safeText(
+            msg.status,
+            30
+          );
+
+        if (
+          transitions[ride.status] !==
+          nextStatus
+        ) {
+
+          return send(ws, {
+            type: "error",
+
+            message:
+              `Invalid ride transition: ${ride.status} → ${nextStatus}.`
+          });
+
+        }
+
+        // ---------------------------------
+        // CHANGE RIDE STATUS
+        // ---------------------------------
+
+        ride.status =
+          nextStatus;
+
+        if (
+          nextStatus === "arrived"
+        ) {
+
+          ride.arrivedAt =
+            now();
+
+        }
+
+        if (
+          nextStatus === "in_progress"
+        ) {
+
+          ride.startedAt =
+            now();
+
+        }
+
+        if (
+          nextStatus === "completed"
+        ) {
+
+          ride.completedAt =
+            now();
+
+        }
+
+        // ---------------------------------
+        // COMPLETED
+        // ---------------------------------
+
+        if (
+          nextStatus === "completed"
+        ) {
+
+          const driver =
+            drivers.get(
+              clientId
+            );
+
+          if (driver) {
+
+            driver.rideId =
+              null;
+
+            driver.online =
+              true;
+
+          }
+
+        }
+
+        // ---------------------------------
+        // SEND NEW RIDE STATE
+        // TO RIDER + DRIVER
+        // ---------------------------------
+
+        notifyRide(
+          ride
+        );
+
+        // ---------------------------------
+        // REFRESH DRIVER DASHBOARD
+        // AFTER EVERY BUTTON
+        // ---------------------------------
+
+        sendDriverSnapshot(
+          clientId
+        );
+
+        break;
+      }
+
+
+      // =================================
+      // DRIVER LOCATION
+      // =================================
+
+      case "driver_location": {
+
+        const driver =
+          drivers.get(clientId);
+
+        if (!driver) return;
+
+        const latitude =
+          Number(
+            msg.latitude
+          );
+
+        const longitude =
+          Number(
+            msg.longitude
+          );
+
+        if (
+          !Number.isFinite(latitude) ||
+          !Number.isFinite(longitude)
+        ) {
           return;
         }
 
-
-        for(
-          const id of current.currentDrivers
-        ){
-
-          const d =
-            users.get(id);
-
-
-          send(
-            d?.ws,
-            {
-              type:'ride_timeout',
-              rideId:r.id
-            }
-          );
-
+        if (
+          latitude < -90 ||
+          latitude > 90 ||
+          longitude < -180 ||
+          longitude > 180
+        ) {
+          return;
         }
 
+        driver.location = {
 
-        finishSearch(current);
+          latitude,
 
-      },
-      OFFER_SECONDS * 1000
-    );
+          longitude,
 
-}
-// ===============================
-// WEBSOCKET
-// ===============================
+          updatedAt:
+            now()
 
-wss.on('connection', ws => {
+        };
 
-  let uid = null;
+        if (
+          driver.rideId
+        ) {
 
+          const ride =
+            rides.get(
+              driver.rideId
+            );
 
-  ws.on('message', raw => {
+          if (
+            ride &&
+            !TERMINAL_STATUSES.has(
+              ride.status
+            )
+          ) {
 
-    let m;
+            ride.driverLocation =
+              driver.location;
 
-    try {
-      m = JSON.parse(raw);
-    }
-    catch(e){
-      return;
-    }
+            sendTo(
+              ride.riderId,
+              {
+                type:
+                  "driver_location",
 
+                rideId:
+                  ride.id,
 
-
-    // ===============================
-    // HELLO
-    // ===============================
-
-    if(m.type === 'hello'){
-
-      uid =
-        'u' +
-        ++seq +
-        '_' +
-        Math.random()
-        .toString(36)
-        .slice(2,7);
-
-
-      users.set(uid,{
-
-        id:uid,
-
-        ws,
-
-        role:m.role,
-
-        name:String(
-          m.name || 'User'
-        ),
-
-        online:true,
-
-        available:
-          m.role === 'driver',
-
-        lat:null,
-
-        lng:null,
-
-        rideId:null
-
-      });
-
-
-      send(
-        ws,
-        {
-          type:'hello_ok',
-          userId:uid
-        }
-      );
-
-
-      count();
-
-      return;
-
-    }
-
-
-
-    const u =
-      users.get(uid);
-
-
-    if(!u){
-      return;
-    }
-
-
-
-    // ===============================
-    // PROFILE
-    // ===============================
-
-    if(m.type === 'profile'){
-
-      if(m.name){
-
-        u.name =
-          String(m.name)
-          .slice(0,80);
-
-      }
-
-      return;
-
-    }
-
-
-
-    // ===============================
-    // DRIVER STATUS
-    // ===============================
-
-    if(
-      m.type === 'driver_status' &&
-      u.role === 'driver'
-    ){
-
-      u.online =
-        !!m.online;
-
-
-      u.available =
-        !!m.online &&
-        !u.rideId;
-
-
-
-      if(!u.online){
-
-        for(const r of rides.values()){
-
-          if(
-            r.status === 'searching' &&
-            r.currentDrivers &&
-            r.currentDrivers.includes(uid)
-          ){
-
-            r.currentDrivers =
-              r.currentDrivers
-              .filter(
-                id=>id!==uid
-              );
+                location:
+                  ride.driverLocation
+              }
+            );
 
           }
 
         }
 
+        break;
       }
 
 
-      count();
+      // =================================
+      // CANCEL RIDE
+      // =================================
 
-      return;
+      case "cancel_ride": {
 
-    }
+        const ride =
+          rides.get(msg.rideId);
 
+        if (!ride) {
 
-
-
-    // ===============================
-    // LOCATION
-    // ===============================
-
-    if(m.type === 'location'){
-
-      u.lat =
-        Number(m.lat);
-
-
-      u.lng =
-        Number(m.lng);
-
-
-
-      if(u.rideId){
-
-        const r =
-          rides.get(
-            u.rideId
-          );
-
-
-        if(r){
-
-          for(const x of users.values()){
-
-            if(
-              x.rideId ===
-              u.rideId
-            ){
-
-              send(
-                x.ws,
-                {
-                  type:'location',
-                  role:u.role,
-                  lat:u.lat,
-                  lng:u.lng,
-                  rideId:u.rideId
-                }
-              );
-
-            }
-
-          }
-
-        }
-
-      }
-
-
-      return;
-
-    }
-
-
-
-
-
-    // ===============================
-    // PASSENGER REQUEST
-    // ===============================
-
-    if(
-      m.type === 'passenger_offer' &&
-      u.role === 'passenger'
-    ){
-
-
-      if(u.rideId){
-
-        return send(
-          ws,
-          {
-            type:'error',
+          return send(ws, {
+            type: "error",
             message:
-              'Passenger already has an active ride.'
+              "Ride not found."
+          });
+
+        }
+
+        if (
+          clientId !== ride.riderId &&
+          clientId !== ride.driverId
+        ) {
+
+          return send(ws, {
+            type: "error",
+            message:
+              "You are not part of this ride."
+          });
+
+        }
+
+        if (
+          TERMINAL_STATUSES.has(
+            ride.status
+          )
+        ) {
+
+          return send(ws, {
+            type: "error",
+            message:
+              "Ride is already closed."
+          });
+
+        }
+
+        ride.status =
+          "cancelled";
+
+        ride.cancelledAt =
+          now();
+
+        if (
+          ride.driverId
+        ) {
+
+          const driver =
+            drivers.get(
+              ride.driverId
+            );
+
+          if (driver) {
+
+            driver.rideId =
+              null;
+
+            driver.online =
+              true;
+
           }
-        );
 
-      }
-
-
-
-      const r = {
-
-        id:
-          'R' + ++seq,
-
-
-        passengerId:
-          uid,
-
-
-        passengerName:
-          u.name,
-
-
-        pickup:
-          m.ride.pickup,
-
-
-        destination:
-          m.ride.destination,
-
-
-        pax:
-          Number(m.ride.pax) || 1,
-
-
-        fare:
-          Number(m.ride.fare) || 0,
-
-
-        pickupCoords:
-          m.ride.pickupCoords || null,
-
-
-        destinationCoords:
-          m.ride.destinationCoords || null,
-
-
-        status:
-          'searching',
-
-
-        createdAt:
-          Date.now(),
-
-
-        candidates:[],
-
-
-        currentDrivers:[],
-
-
-        driverId:null,
-
-
-        offerTimer:null
-
-      };
-
-
-
-      rides.set(
-        r.id,
-        r
-      );
-
-
-      u.rideId =
-        r.id;
-
-
-
-      r.candidates =
-        drivers()
-        .sort(
-          (a,b)=>
-            dist(
-              a,
-              r.pickupCoords
-            )
-            -
-            dist(
-              b,
-              r.pickupCoords
-            )
-        )
-        .map(
-          d=>d.id
-        );
-
-
-
-      if(!r.candidates.length){
-
-        return finishSearch(r);
-
-      }
-
-
-
-      offerDrivers(r);
-
-
-
-      send(
-        ws,
-        {
-          type:'searching',
-          rideId:r.id,
-          driverCount:
-            r.candidates.length
         }
-      );
 
-
-      return;
-
-    }
-
-
-
-
-
-
-    // ===============================
-    // DRIVER PASS / TIMEOUT
-    // ===============================
-
-    if(
-      m.type === 'driver_pass' ||
-      m.type === 'driver_timeout'
-    ){
-
-      const r =
-        rides.get(
-          m.rideId
+        notifyRide(
+          ride
         );
 
-
-      if(
-        !r ||
-        r.status !== 'searching' ||
-        !r.currentDrivers.includes(uid)
-      ){
-
-        return;
-
-      }
-
-
-
-      r.currentDrivers =
-        r.currentDrivers
-        .filter(
-          id=>id!==uid
-        );
-
-
-
-      send(
-        ws,
-        {
-          type:'offer_passed',
-          rideId:r.id
-        }
-      );
-
-
-
-      if(
-        !r.currentDrivers.length
-      ){
-
-        offerDrivers(r);
-
-      }
-
-
-      return;
-
-    }
-
-
-
-
-
-    // ===============================
-    // DRIVER ACCEPT
-    // ===============================
-
-    if(m.type === 'driver_accept'){
-
-
-      const r =
-        rides.get(
-          m.rideId
-        );
-
-
-      if(
-        !r ||
-        r.status !== 'searching' ||
-        !r.currentDrivers.includes(uid) ||
-        u.role !== 'driver' ||
-        !u.online ||
-        !u.available
-      ){
-
-        return send(
-          ws,
-          {
-            type:'ride_lost',
-            rideId:m.rideId
-          }
-        );
-
-      }
-
-
-
-
-      clearTimeout(
-        r.offerTimer
-      );
-
-
-      r.offerTimer =
-        null;
-
-
-
-      // FIRST DRIVER WINS
-
-      r.status =
-        'accepted';
-
-
-      r.driverId =
-        uid;
-
-
-      r.driverName =
-        u.name;
-
-
-      r.currentDrivers =
-        [];
-
-
-
-      u.available =
-        false;
-
-
-      u.rideId =
-        r.id;
-
-
-
-      const p =
-        users.get(
-          r.passengerId
-        );
-
-
-
-      send(
-        p?.ws,
-        {
-          type:'matched',
-          ride:r,
-          driver:{
-            id:uid,
-            name:u.name,
-            lat:u.lat,
-            lng:u.lng
-          }
-        }
-      );
-
-
-
-      send(
-        ws,
-        {
-          type:'accepted',
-          ride:r
-        }
-      );
-
-
-
-      // notify losing drivers
-
-      for(const d of users.values()){
-
-        if(
-          d.role === 'driver' &&
-          d.id !== uid
-        ){
-
-          send(
-            d.ws,
-            {
-              type:'ride_taken',
-              rideId:r.id
-            }
+        if (
+          ride.driverId
+        ) {
+
+          sendDriverSnapshot(
+            ride.driverId
           );
 
         }
 
+        break;
       }
 
 
+      // =================================
+      // GET CURRENT STATE
+      // =================================
 
-      count();
+      case "get_state": {
 
-      return;
+        if (
+          client.role === "driver"
+        ) {
 
-    }
-// ===============================
-// RIDE STATE MACHINE
-// ===============================
+          sendDriverSnapshot(
+            clientId
+          );
 
-const validTransitions = {
+        }
 
-  accepted:[
-    'going_to_pickup',
-    'cancelled'
-  ],
+        if (
+          client.role === "rider"
+        ) {
 
-  going_to_pickup:[
-    'arrived',
-    'cancelled'
-  ],
+          sendRiderSnapshot(
+            clientId
+          );
 
-  arrived:[
-    'started',
-    'cancelled'
-  ],
+        }
 
-  started:[
-    'completed',
-    'cancelled'
-  ]
-
-};
-
-
-
-function notifyRideState(
-  r,
-  state,
-  message
-){
-
-  r.status =
-    state;
-
-
-  r.updatedAt =
-    Date.now();
-
-
-
-  const p =
-    users.get(
-      r.passengerId
-    );
-
-
-  const d =
-    users.get(
-      r.driverId
-    );
-
-
-
-  const payload = {
-
-    type:'ride_state',
-
-    state,
-
-    ride:r,
-
-    message:
-      message || null
-
-  };
-
-
-
-  send(
-    p?.ws,
-    payload
-  );
-
-
-  send(
-    d?.ws,
-    payload
-  );
-
-}
-
-
-
-
-// ===============================
-// RIDE STATE MESSAGE
-// ===============================
-
-if(m.type === 'ride_state'){
-
-  const r =
-    rides.get(
-      m.rideId
-    );
-
-
-
-  if(
-    !r ||
-    r.driverId !== uid
-  ){
-
-    return;
-
-  }
-
-
-
-  const next =
-    String(
-      m.state || ''
-    );
-
-
-
-  if(
-    !validTransitions[
-      r.status
-    ]?.includes(next)
-  ){
-
-    return send(
-      ws,
-      {
-        type:'state_rejected',
-        rideId:r.id,
-        state:next,
-        currentState:r.status
+        break;
       }
-    );
-
-  }
 
 
+      // =================================
+      // UNKNOWN MESSAGE
+      // =================================
 
-  const messages = {
+      default: {
 
-    going_to_pickup:
-      `Driver ${r.driverName} is going to pickup.`,
+        send(ws, {
+          type: "error",
+          message:
+            "Unknown command."
+        });
 
-    arrived:
-      `Driver ${r.driverName} arrived.`,
-
-    started:
-      `Ride started.`,
-
-    completed:
-      `Ride completed. Thank you.`,
-
-    cancelled:
-      `Ride cancelled.`
-
-  };
-
-
-
-  notifyRideState(
-    r,
-    next,
-    messages[next]
-  );
-
-
-
-  if(
-    next === 'completed' ||
-    next === 'cancelled'
-  ){
-
-    const p =
-      users.get(
-        r.passengerId
-      );
-
-
-    const d =
-      users.get(
-        r.driverId
-      );
-
-
-
-    if(p){
-
-      p.rideId =
-        null;
+        break;
+      }
 
     }
-
-
-    if(d){
-
-      d.rideId =
-        null;
-
-
-      d.available =
-        d.online;
-
-    }
-
-
-    count();
-
-  }
-
-
-
-  return;
-
-}
-
-
-
-
-
-// ===============================
-// CANCEL RIDE
-// ===============================
-
-if(m.type === 'cancel_ride'){
-
-
-  const r =
-    rides.get(
-      m.rideId
-    );
-
-
-
-  if(!r){
-    return;
-  }
-
-
-
-  if(
-    r.status !== 'searching' &&
-    r.driverId !== uid &&
-    r.passengerId !== uid
-  ){
-
-    return;
-
-  }
-
-
-
-  clearTimeout(
-    r.offerTimer
-  );
-
-
-  r.offerTimer =
-    null;
-
-
-  r.status =
-    'cancelled';
-
-
-
-  r.currentDrivers =
-    [];
-
-
-
-  const p =
-    users.get(
-      r.passengerId
-    );
-
-
-  const d =
-    users.get(
-      r.driverId
-    );
-
-
-
-  if(p){
-
-    p.rideId =
-      null;
-
-  }
-
-
-  if(d){
-
-    d.rideId =
-      null;
-
-
-    d.available =
-      d.online;
-
-  }
-
-
-
-  send(
-    p?.ws,
-    {
-      type:'cancelled',
-      ride:r,
-      message:'Ride cancelled.'
-    }
-  );
-
-
-
-  send(
-    d?.ws,
-    {
-      type:'cancelled',
-      ride:r,
-      message:'Ride cancelled.'
-    }
-  );
-
-
-
-  count();
-
-  return;
-
-}
-
-
 
   });
 
 
-  // ===============================
+  // =================================
   // DISCONNECT
-  // ===============================
+  // =================================
 
-  ws.on('close',()=>{
+  ws.on("close", () => {
 
+    const driver =
+      drivers.get(clientId);
 
-    if(!uid){
-      return;
-    }
+    if (driver) {
 
+      if (driver.rideId) {
 
-
-    const u =
-      users.get(uid);
-
-
-
-    for(const r of rides.values()){
-
-
-      if(
-        r.status === 'searching' &&
-        r.currentDrivers?.includes(uid)
-      ){
-
-        r.currentDrivers =
-          r.currentDrivers
-          .filter(
-            id=>id!==uid
+        const ride =
+          rides.get(
+            driver.rideId
           );
 
+        if (
+          ride &&
+          !TERMINAL_STATUSES.has(
+            ride.status
+          )
+        ) {
 
+          ride.status =
+            "cancelled";
 
-        if(
-          !r.currentDrivers.length
-        ){
+          ride.cancelledAt =
+            now();
 
-          offerDrivers(r);
-
-        }
-
-      }
-
-
-
-
-
-      if(
-        u?.rideId === r.id &&
-        (
-          r.passengerId === uid ||
-          r.driverId === uid
-        ) &&
-        [
-          'accepted',
-          'going_to_pickup',
-          'arrived',
-          'started'
-        ]
-        .includes(
-          r.status
-        )
-      ){
-
-
-        r.status =
-          'cancelled';
-
-
-
-        const other =
-          users.get(
-            r.passengerId === uid
-              ? r.driverId
-              : r.passengerId
-          );
-
-
-
-        if(other){
-
-          other.rideId =
-            null;
-
-
-
-          send(
-            other.ws,
+          sendTo(
+            ride.riderId,
             {
-              type:'cancelled',
-              ride:r,
-              message:
-                'Other party disconnected.'
+              type:
+                "ride_update",
+
+              ride:
+                publicRide(ride)
             }
           );
 
         }
 
-
       }
 
+      drivers.delete(
+        clientId
+      );
 
     }
 
-
-
-    users.delete(uid);
-
-
-    count();
-
+    clients.delete(
+      clientId
+    );
 
   });
-
 
 });
 
 
-
-// ===============================
+// =================================
 // START SERVER
-// ===============================
+// =================================
+
+const PORT =
+  process.env.PORT || 3000;
 
 server.listen(
-  process.env.PORT || 3000,
-  ()=>{
+  PORT,
+  () => {
+
     console.log(
-      'Transporter7 V2 ready'
+      `RideShare running at http://localhost:${PORT}`
     );
+
   }
 );
