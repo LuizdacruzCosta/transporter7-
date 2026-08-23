@@ -1,899 +1,698 @@
-const express = require("express");
-const http = require("http");
-const WebSocket = require("ws");
-const crypto = require("crypto");
+let ws = null;
+let reconnectTimer = null;
+let pendingMessages = [];
+let lastAutoNavigatedRide = null;
+let navigationWindow = null;
+let online = false;
+let currentRide = null;
+let locationTimer = null;
 
-const app = express();
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+const $ = id => document.getElementById(id);
 
-app.use(express.json());
-app.use(express.static("public"));
-
-app.get("/health", (_req, res) => {
-  res.json({
-    ok: true,
-    service: "RideShare",
-    version: "2.0.0",
-    time: new Date().toISOString()
-  });
-});
-
-const clients = new Map();
-const drivers = new Map();
-const rides = new Map();
-
-const TERMINAL_STATUSES = new Set([
-  "completed",
-  "cancelled"
-]);
-
-function now() {
-  return new Date().toISOString();
-}
-
-function send(ws, message) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(message));
-  }
-}
-
-function sendTo(clientId, message) {
-  const client = clients.get(clientId);
-
-  if (client) {
-    send(client.ws, message);
-  }
-}
-
-function broadcast(message, predicate = () => true) {
-  for (const client of clients.values()) {
-    if (predicate(client)) {
-      send(client.ws, message);
-    }
-  }
-}
-
-function safeText(value, max = 200) {
-  return String(value ?? "")
-    .trim()
-    .slice(0, max);
-}
-
-function activeRideForRider(riderId) {
-  return [...rides.values()].find(
-    ride =>
-      ride.riderId === riderId &&
-      !TERMINAL_STATUSES.has(ride.status)
-  );
-}
-
-function activeRideForDriver(driverId) {
-  return [...rides.values()].find(
-    ride =>
-      ride.driverId === driverId &&
-      !TERMINAL_STATUSES.has(ride.status)
-  );
-}
-
-function availableDrivers() {
-  return [...drivers.values()].filter(
-    driver =>
-      driver.online &&
-      !driver.rideId
-  );
-}
-
-function publicRide(ride) {
-  return {
-    id: ride.id,
-
-    riderId: ride.riderId,
-    riderName: ride.riderName,
-
-    driverId: ride.driverId,
-    driverName: ride.driverName,
-
-    pickup: ride.pickup,
-    destination: ride.destination,
-
-    status: ride.status,
-
-    createdAt: ride.createdAt,
-    acceptedAt: ride.acceptedAt,
-    arrivedAt: ride.arrivedAt,
-    startedAt: ride.startedAt,
-    completedAt: ride.completedAt,
-    cancelledAt: ride.cancelledAt,
-
-    driverLocation: ride.driverLocation
-  };
-}
-
-function makeRide(rider, pickup, destination) {
-  return {
-    id: crypto.randomUUID(),
-
-    riderId: rider.id,
-    riderName: rider.name,
-
-    driverId: null,
-    driverName: null,
-
-    pickup,
-    destination,
-
-    status: "requested",
-
-    createdAt: now(),
-    acceptedAt: null,
-    arrivedAt: null,
-    startedAt: null,
-    completedAt: null,
-    cancelledAt: null,
-
-    driverLocation: null
-  };
-}
-
-function notifyRide(ride) {
-  sendTo(ride.riderId, {
-    type: "ride_update",
-    ride: publicRide(ride)
-  });
-
-  if (ride.driverId) {
-    sendTo(ride.driverId, {
-      type: "ride_update",
-      ride: publicRide(ride)
-    });
-  }
-}
-
-function notifyAvailableDrivers(ride) {
-  for (const driver of availableDrivers()) {
-    sendTo(driver.clientId, {
-      type: "ride_request",
-      ride: publicRide(ride)
-    });
-  }
-}
-
-function sendDriverSnapshot(clientId) {
-  const driver = drivers.get(clientId);
-
-  if (!driver) {
+function connect(force = false) {
+  // Normally prevent duplicate WebSocket connections.
+  if (
+    !force &&
+    ws &&
+    (ws.readyState === WebSocket.OPEN ||
+      ws.readyState === WebSocket.CONNECTING)
+  ) {
     return;
   }
 
-  const activeRide =
-    driver.rideId
-      ? rides.get(driver.rideId)
-      : null;
+  // Force a fresh connection when returning from Google Maps.
+  if (force && ws) {
+    try {
+      ws.onclose = null;
+      ws.close();
+    } catch (error) {
+      console.log("Old WebSocket close error:", error);
+    }
 
-  sendTo(clientId, {
-    type: "driver_state",
+    ws = null;
+  }
 
-    online: driver.online,
+  if (reconnectTimer !== null) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
 
-    rideId: driver.rideId,
+  const socket = new WebSocket(
+    `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`
+  );
 
-    activeRide:
-      activeRide
-        ? publicRide(activeRide)
-        : null
-  });
-}
+  ws = socket;
 
-function sendRiderSnapshot(clientId) {
-  const activeRide =
-    activeRideForRider(clientId);
+  socket.onopen = () => {
+    // Ignore an old socket if a newer connection replaced it.
+    if (ws !== socket) return;
 
-  sendTo(clientId, {
-    type: "rider_state",
+    register();
 
-    activeRide:
-      activeRide
-        ? publicRide(activeRide)
-        : null,
+    // Restore any button action that was clicked while the socket
+    // was reconnecting.
+    if (pendingMessages.length) {
+      const queued = pendingMessages.splice(0);
 
-    driversAvailable:
-      availableDrivers().length
-  });
-}
+      for (const message of queued) {
+        socket.send(JSON.stringify(message));
+      }
+    }
 
-wss.on("connection", ws => {
-  const clientId = crypto.randomUUID();
+    showMessage("Connected.");
+  };
 
-  clients.set(clientId, {
-    id: clientId,
-    ws,
-    role: null,
-    name: "Guest"
-  });
+  socket.onmessage = event => {
+    // Ignore messages from an obsolete socket.
+    if (ws !== socket) return;
 
-  send(ws, {
-    type: "connected",
-    clientId
-  });
-
-  ws.on("message", raw => {
     let msg;
 
     try {
-      msg = JSON.parse(raw.toString());
-    } catch {
-      return send(ws, {
-        type: "error",
-        message: "Invalid message."
-      });
-    }
-
-    const client = clients.get(clientId);
-
-    if (!client) {
+      msg = JSON.parse(event.data);
+    } catch (error) {
+      console.error("Invalid WebSocket message:", error);
       return;
     }
 
-    switch (msg.type) {
+    if (msg.type === "ride_request") {
+      addRequest(msg.ride);
+    }
 
-      // =====================================================
-      // REGISTER
-      // =====================================================
+    if (msg.type === "ride_unavailable") {
+      document
+        .querySelector(`[data-ride="${msg.rideId}"]`)
+        ?.remove();
+    }
 
-      case "register": {
-        const role =
-          msg.role === "driver"
-            ? "driver"
-            : "rider";
+    if (msg.type === "ride_update") {
+      currentRide = msg.ride;
 
-        const name =
-          safeText(msg.name, 80) ||
-          (
-            role === "driver"
-              ? "Driver"
-              : "Rider"
+      if (msg.ride.driverId) {
+        renderCurrentRide();
+
+        document
+          .querySelector(`[data-ride="${msg.ride.id}"]`)
+          ?.remove();
+
+        if (
+          msg.ride.status === "accepted" &&
+          lastAutoNavigatedRide !== msg.ride.id
+        ) {
+          lastAutoNavigatedRide = msg.ride.id;
+
+          showMessage(
+            `Ride accepted. PICK UP ${
+              msg.ride.riderName || "Passenger"
+            }.`
           );
 
-        if (
-          client.role === "driver" &&
-          role !== "driver"
-        ) {
-          drivers.delete(clientId);
-        }
-
-        client.role = role;
-        client.name = name;
-
-        if (role === "driver") {
-
-          const existing =
-            drivers.get(clientId);
-
-          drivers.set(clientId, {
-            clientId,
-            name,
-
-            online:
-              existing?.online ?? false,
-
-            rideId:
-              existing?.rideId ?? null,
-
-            location:
-              existing?.location ?? null
-          });
-
-          sendDriverSnapshot(clientId);
-
-        } else {
-
-          sendRiderSnapshot(clientId);
-        }
-
-        send(ws, {
-          type: "registered",
-          clientId,
-          role,
-          name
-        });
-
-        break;
-      }
-
-      // =====================================================
-      // DRIVER ONLINE / OFFLINE
-      // =====================================================
-
-      case "driver_online": {
-
-        const driver =
-          drivers.get(clientId);
-
-        if (!driver) {
-          return send(ws, {
-            type: "error",
-            message:
-              "Register as a driver first."
-          });
-        }
-
-        if (
-          driver.rideId &&
-          msg.online === false
-        ) {
-          return send(ws, {
-            type: "error",
-            message:
-              "Finish or cancel the current ride before going offline."
-          });
-        }
-
-        driver.online =
-          Boolean(msg.online);
-
-        sendDriverSnapshot(clientId);
-
-        if (driver.online) {
-
-          for (const ride of rides.values()) {
-
+          setTimeout(() => {
             if (
-              ride.status === "requested" &&
-              !ride.driverId
+              currentRide &&
+              currentRide.id === msg.ride.id &&
+              currentRide.status === "accepted"
             ) {
-              send(ws, {
-                type: "ride_request",
-                ride: publicRide(ride)
-              });
+              openNavigation(msg.ride.pickup);
             }
-          }
+          }, 300);
         }
-
-        break;
-      }
-
-      // =====================================================
-      // RIDER REQUESTS RIDE
-      // =====================================================
-
-      case "request_ride": {
-
-        if (client.role !== "rider") {
-          return send(ws, {
-            type: "error",
-            message:
-              "Only riders can request rides."
-          });
-        }
-
-        const pickup =
-          safeText(msg.pickup);
-
-        const destination =
-          safeText(msg.destination);
-
-        if (!pickup || !destination) {
-          return send(ws, {
-            type: "error",
-            message:
-              "Enter both pickup and destination."
-          });
-        }
-
-        if (activeRideForRider(clientId)) {
-          return send(ws, {
-            type: "error",
-            message:
-              "You already have an active ride."
-          });
-        }
-
-        const ride =
-          makeRide(
-            client,
-            pickup,
-            destination
-          );
-
-        rides.set(
-          ride.id,
-          ride
-        );
-
-        send(ws, {
-          type: "ride_created",
-
-          ride:
-            publicRide(ride),
-
-          driversAvailable:
-            availableDrivers().length
-        });
-
-        notifyAvailableDrivers(ride);
-
-        break;
-      }
-
-      // =====================================================
-      // DRIVER ACCEPTS RIDE
-      // =====================================================
-
-      case "accept_ride": {
-
-        const driver =
-          drivers.get(clientId);
-
-        const ride =
-          rides.get(msg.rideId);
-
-        if (!driver || !ride) {
-          return send(ws, {
-            type: "error",
-            message:
-              "Ride not found."
-          });
-        }
-
-        if (
-          !driver.online ||
-          driver.rideId
-        ) {
-          return send(ws, {
-            type: "error",
-            message:
-              "You are not available for this ride."
-          });
-        }
-
-        if (
-          ride.status !== "requested" ||
-          ride.driverId
-        ) {
-          return send(ws, {
-            type: "error",
-            message:
-              "This ride was already accepted by another driver."
-          });
-        }
-
-        ride.driverId =
-          clientId;
-
-        ride.driverName =
-          driver.name;
-
-        ride.status =
-          "accepted";
-
-        ride.acceptedAt =
-          now();
-
-        driver.rideId =
-          ride.id;
-
-        notifyRide(ride);
-
-        // Remove ride from all other drivers.
-        broadcast(
-          {
-            type: "ride_unavailable",
-            rideId: ride.id
-          },
-          c =>
-            c.role === "driver" &&
-            c.id !== clientId
-        );
-
-        sendDriverSnapshot(clientId);
-
-        break;
-      }
-
-      // =====================================================
-      // DRIVER RIDE STATE MACHINE
-      //
-      // accepted
-      //     ↓
-      // arrived
-      //     ↓
-      // in_progress
-      //     ↓
-      // completed
-      // =====================================================
-
-      case "update_ride": {
-
-        const ride =
-          rides.get(msg.rideId);
-
-        if (!ride) {
-          return send(ws, {
-            type: "error",
-            message:
-              "Ride not found."
-          });
-        }
-
-        if (ride.driverId !== clientId) {
-          return send(ws, {
-            type: "error",
-            message:
-              "Only the assigned driver can update this ride."
-          });
-        }
-
-        const transitions = {
-
-          accepted:
-            "arrived",
-
-          arrived:
-            "in_progress",
-
-          in_progress:
-            "completed"
-        };
-
-        const nextStatus =
-          safeText(
-            msg.status,
-            30
-          );
-
-        if (
-          transitions[ride.status] !==
-          nextStatus
-        ) {
-
-          return send(ws, {
-            type: "error",
-
-            message:
-              `Invalid ride transition: ${ride.status} → ${nextStatus}.`
-          });
-        }
-
-        // ---------------------------------------------------
-        // CHANGE RIDE STATUS
-        // ---------------------------------------------------
-
-        ride.status =
-          nextStatus;
-
-        // ---------------------------------------------------
-        // ARRIVED
-        // ---------------------------------------------------
-
-        if (
-          nextStatus === "arrived"
-        ) {
-          ride.arrivedAt =
-            now();
-        }
-
-        // ---------------------------------------------------
-        // START TRIP
-        // ---------------------------------------------------
-
-        if (
-          nextStatus === "in_progress"
-        ) {
-          ride.startedAt =
-            now();
-        }
-
-        // ---------------------------------------------------
-        // COMPLETE TRIP
-        // ---------------------------------------------------
-
-        if (
-          nextStatus === "completed"
-        ) {
-          ride.completedAt =
-            now();
-
-          const driver =
-            drivers.get(clientId);
-
-          if (driver) {
-            driver.rideId =
-              null;
-          }
-        }
-
-        // ---------------------------------------------------
-        // TELL RIDER + DRIVER
-        // ---------------------------------------------------
-
-        notifyRide(ride);
-
-        // ---------------------------------------------------
-        // IMPORTANT:
-        // REFRESH DRIVER STATE AFTER EVERY STEP
-        //
-        // This is what makes:
-        //
-        // I've Arrived
-        //       ↓
-        // Start Trip
-        //       ↓
-        // Complete Trip
-        //
-        // update correctly.
-        // ---------------------------------------------------
-
-        sendDriverSnapshot(
-          clientId
-        );
-
-        break;
-      }
-
-      // =====================================================
-      // DRIVER LOCATION
-      // =====================================================
-
-      case "driver_location": {
-
-        const driver =
-          drivers.get(clientId);
-
-        if (!driver) {
-          return;
-        }
-
-        const latitude =
-          Number(msg.latitude);
-
-        const longitude =
-          Number(msg.longitude);
-
-        if (
-          !Number.isFinite(latitude) ||
-          !Number.isFinite(longitude)
-        ) {
-          return;
-        }
-
-        if (
-          latitude < -90 ||
-          latitude > 90 ||
-          longitude < -180 ||
-          longitude > 180
-        ) {
-          return;
-        }
-
-        driver.location = {
-          latitude,
-          longitude,
-          updatedAt: now()
-        };
-
-        if (driver.rideId) {
-
-          const ride =
-            rides.get(
-              driver.rideId
-            );
-
-          if (
-            ride &&
-            !TERMINAL_STATUSES.has(
-              ride.status
-            )
-          ) {
-
-            ride.driverLocation =
-              driver.location;
-
-            sendTo(
-              ride.riderId,
-              {
-                type:
-                  "driver_location",
-
-                rideId:
-                  ride.id,
-
-                location:
-                  ride.driverLocation
-              }
-            );
-          }
-        }
-
-        break;
-      }
-
-      // =====================================================
-      // CANCEL RIDE
-      // =====================================================
-
-      case "cancel_ride": {
-
-        const ride =
-          rides.get(msg.rideId);
-
-        if (!ride) {
-          return send(ws, {
-            type: "error",
-            message:
-              "Ride not found."
-          });
-        }
-
-        if (
-          clientId !== ride.riderId &&
-          clientId !== ride.driverId
-        ) {
-          return send(ws, {
-            type: "error",
-            message:
-              "You are not part of this ride."
-          });
-        }
-
-        if (
-          TERMINAL_STATUSES.has(
-            ride.status
-          )
-        ) {
-          return send(ws, {
-            type: "error",
-            message:
-              "Ride is already closed."
-          });
-        }
-
-        const driverId =
-          ride.driverId;
-
-        ride.status =
-          "cancelled";
-
-        ride.cancelledAt =
-          now();
-
-        if (driverId) {
-
-          const driver =
-            drivers.get(driverId);
-
-          if (driver) {
-            driver.rideId =
-              null;
-          }
-        }
-
-        notifyRide(ride);
-
-        // Refresh driver's screen after cancellation.
-        if (driverId) {
-          sendDriverSnapshot(
-            driverId
-          );
-        }
-
-        // Also refresh the rider.
-        sendRiderSnapshot(
-          ride.riderId
-        );
-
-        break;
-      }
-
-      // =====================================================
-      // GET CURRENT STATE
-      // =====================================================
-
-      case "get_state": {
-
-        if (
-          client.role === "driver"
-        ) {
-          sendDriverSnapshot(
-            clientId
-          );
-        }
-
-        if (
-          client.role === "rider"
-        ) {
-          sendRiderSnapshot(
-            clientId
-          );
-        }
-
-        break;
-      }
-
-      // =====================================================
-      // UNKNOWN COMMAND
-      // =====================================================
-
-      default: {
-
-        send(ws, {
-          type: "error",
-          message:
-            "Unknown command."
-        });
-
-        break;
       }
     }
-  });
 
-  // =======================================================
-  // CONNECTION CLOSED
-  // =======================================================
+    if (msg.type === "driver_state") {
+      online = msg.online;
+      currentRide = msg.activeRide || currentRide;
 
-  ws.on("close", () => {
+      updateOnlineUI();
 
-    const driver =
-      drivers.get(clientId);
-
-    if (driver) {
-
-      if (driver.rideId) {
-
-        const ride =
-          rides.get(
-            driver.rideId
-          );
-
-        if (
-          ride &&
-          !TERMINAL_STATUSES.has(
-            ride.status
-          )
-        ) {
-
-          ride.status =
-            "cancelled";
-
-          ride.cancelledAt =
-            now();
-
-          sendTo(
-            ride.riderId,
-            {
-              type:
-                "ride_update",
-
-              ride:
-                publicRide(ride)
-            }
-          );
-        }
+      if (currentRide) {
+        renderCurrentRide();
       }
-
-      drivers.delete(
-        clientId
-      );
     }
 
-    clients.delete(
-      clientId
+    if (msg.type === "error") {
+      showMessage(msg.message, true);
+    }
+  };
+
+  socket.onclose = () => {
+    // Only handle the currently active socket.
+    if (ws !== socket) return;
+
+    ws = null;
+
+    stopLocationSharing();
+
+    online = false;
+
+    updateOnlineUI();
+
+    showMessage(
+      "Disconnected from server. Reconnecting...",
+      true
     );
-  });
+
+    scheduleReconnect();
+  };
+
+  socket.onerror = () => {
+    // onclose will perform the reconnect.
+    showMessage(
+      "WebSocket connection error. Reconnecting...",
+      true
+    );
+  };
+}
+
+function scheduleReconnect() {
+  if (reconnectTimer !== null) return;
+
+  // Do not repeatedly create connections while the page is hidden.
+  if (document.visibilityState === "hidden") return;
+
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    connect();
+  }, 1000);
+}
+
+// Chrome can put this page into the Back-Forward Cache while Google Maps
+// is open. When RideShare comes back, the old WebSocket may be dead.
+// Reconnect immediately so the ride buttons work again.
+window.addEventListener("pageshow", event => {
+  if (event.persisted) {
+    console.log("RideShare returned from Back-Forward Cache.");
+
+    // The old WebSocket can look OPEN even though it is no longer usable.
+    // Close it and force a completely new connection.
+    if (ws) {
+      try {
+        ws.onclose = null;
+        ws.close();
+      } catch (error) {
+        console.log("Old WebSocket close error:", error);
+      }
+
+      ws = null;
+    }
+
+    if (reconnectTimer !== null) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+
+    connect(true);
+    return;
+  }
+
+  if (!ws || ws.readyState === WebSocket.CLOSED) {
+    connect();
+  }
 });
 
-// =========================================================
-// START SERVER
-// =========================================================
+window.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") {
+    if (!ws || ws.readyState === WebSocket.CLOSED) {
+      connect();
+    }
+  }
+});
 
-const PORT =
-  process.env.PORT || 3000;
+function register() {
+  send({
+    type: "register",
+    role: "driver",
+    name: $("name").value.trim() || "Driver"
+  });
+}
 
-server.listen(
-  PORT,
-  () => {
-    console.log(
-      `RideShare running at http://localhost:${PORT}`
+$("onlineBtn").onclick = () => {
+  if (!online) {
+    online = true;
+
+    send({
+      type: "driver_online",
+      online: true
+    });
+
+    startLocationSharing();
+  } else {
+    if (
+      currentRide &&
+      !["completed", "cancelled"].includes(
+        currentRide.status
+      )
+    ) {
+      showMessage(
+        "Finish or cancel the current ride before going offline.",
+        true
+      );
+      return;
+    }
+
+    online = false;
+
+    send({
+      type: "driver_online",
+      online: false
+    });
+
+    stopLocationSharing();
+  }
+};
+
+$("name").addEventListener(
+  "change",
+  register
+);
+
+function addRequest(ride) {
+  if (!online) {
+    return;
+  }
+
+  if (
+    document.querySelector(
+      `[data-ride="${ride.id}"]`
+    )
+  ) {
+    return;
+  }
+
+  const riderName =
+    ride.riderName || "Passenger";
+
+  const div =
+    document.createElement("div");
+
+  div.className = "request";
+
+  div.dataset.ride = ride.id;
+
+  div.innerHTML = `
+    <div>
+      <strong>New ride request</strong>
+
+      <p>
+        <b>Passenger:</b>
+        ${escapeHtml(riderName)}
+      </p>
+
+      <p>
+        <b>Pickup:</b>
+        ${escapeHtml(ride.pickup)}
+      </p>
+
+      <p>
+        <b>Destination:</b>
+        ${escapeHtml(ride.destination)}
+      </p>
+    </div>
+
+    <button>Accept Ride</button>
+  `;
+
+  div.querySelector("button").onclick = () => {
+    send({
+      type: "accept_ride",
+      rideId: ride.id
+    });
+
+    div.remove();
+  };
+
+  const empty =
+    $("requests").querySelector(".muted");
+
+  if (empty) {
+    empty.remove();
+  }
+
+  $("requests").prepend(div);
+}
+
+function renderCurrentRide() {
+  if (
+    !currentRide ||
+    ["completed", "cancelled"].includes(
+      currentRide.status
+    )
+  ) {
+    $("currentRide").innerHTML =
+      `<p class="muted">No active ride.</p>`;
+
+    return;
+  }
+
+  const riderName =
+    currentRide.riderName ||
+    "Passenger";
+
+  const flow = {
+    accepted: {
+      statusText: "GO TO PICKUP",
+      buttonStatus: "arrived",
+      buttonText: "I've Arrived"
+    },
+
+    arrived: {
+      statusText: "PASSENGER READY",
+      buttonStatus: "in_progress",
+      buttonText: "Start Trip"
+    },
+
+    in_progress: {
+      statusText: "TRIP IN PROGRESS",
+      buttonStatus: "completed",
+      buttonText: "Complete Trip"
+    }
+  };
+
+  const step =
+    flow[currentRide.status];
+
+  if (!step) {
+    return;
+  }
+
+  const showPickupNav =
+    currentRide.status === "accepted";
+
+  const showDestinationNav =
+    currentRide.status === "in_progress";
+
+  $("currentRide").innerHTML = `
+    <div class="pickup-banner">
+
+      <div class="pickup-title">
+        ${
+          currentRide.status === "accepted"
+            ? `PICK UP ${escapeHtml(riderName)}`
+            : escapeHtml(step.statusText)
+        }
+      </div>
+
+      <div class="pickup-subtitle">
+        ${
+          currentRide.status === "accepted"
+            ? escapeHtml(currentRide.pickup)
+            : currentRide.status === "arrived"
+              ? `Passenger: ${escapeHtml(riderName)}`
+              : `Destination: ${escapeHtml(currentRide.destination)}`
+        }
+      </div>
+
+      ${
+        showPickupNav
+          ? `
+            <button
+              id="navigatePickupBtn"
+              class="navigate-btn"
+            >
+              🚗 NAVIGATE TO PICKUP
+            </button>
+          `
+          : ""
+      }
+
+      ${
+        showDestinationNav
+          ? `
+            <button
+              id="navigateDestinationBtn"
+              class="navigate-btn"
+            >
+              🧭 NAVIGATE TO DESTINATION
+            </button>
+          `
+          : ""
+      }
+
+    </div>
+
+    <div class="ride-detail">
+
+      <div>
+        <b>Passenger</b>
+        <span>
+          ${escapeHtml(riderName)}
+        </span>
+      </div>
+
+      <div>
+        <b>Pickup</b>
+        <span>
+          ${escapeHtml(currentRide.pickup)}
+        </span>
+      </div>
+
+      <div>
+        <b>Destination</b>
+        <span>
+          ${escapeHtml(currentRide.destination)}
+        </span>
+      </div>
+
+      <div>
+        <b>Ride status</b>
+        <span>
+          ${escapeHtml(step.statusText)}
+        </span>
+      </div>
+
+    </div>
+
+    <button id="nextBtn">
+      ${escapeHtml(step.buttonText)}
+    </button>
+
+    <button
+      id="cancelRideBtn"
+      class="danger"
+    >
+      Cancel Ride
+    </button>
+  `;
+
+  if (showPickupNav) {
+    $("navigatePickupBtn").onclick =
+      () => {
+        openNavigation(
+          currentRide.pickup
+        );
+      };
+  }
+
+  if (showDestinationNav) {
+    $("navigateDestinationBtn").onclick =
+      () => {
+        openNavigation(
+          currentRide.destination
+        );
+      };
+  }
+
+  $("nextBtn").onclick = () => {
+    send({
+      type: "update_ride",
+      rideId: currentRide.id,
+      status: step.buttonStatus
+    });
+  };
+
+  $("cancelRideBtn").onclick = () => {
+    send({
+      type: "cancel_ride",
+      rideId: currentRide.id
+    });
+
+    lastAutoNavigatedRide = null;
+    navigationWindow = null;
+  };
+}
+
+function openNavigation(destination) {
+  if (!destination) {
+    showMessage(
+      "No navigation destination is available.",
+      true
+    );
+
+    return;
+  }
+
+  const encodedDestination =
+    encodeURIComponent(destination);
+
+  const navigationUrl =
+    `https://www.google.com/maps/dir/?api=1` +
+    `&destination=${encodedDestination}` +
+    `&travelmode=driving` +
+    `&dir_action=navigate`;
+
+  // Keep RideShare open. Google Maps opens in another tab/window.
+  const navigationTab = window.open(
+    navigationUrl,
+    "_blank",
+    "noopener,noreferrer"
+  );
+
+  if (!navigationTab) {
+    showMessage(
+      "Google Maps was blocked. Please allow pop-ups for this site.",
+      true
     );
   }
-);
+}
+
+function startLocationSharing() {
+  stopLocationSharing();
+
+  if (!navigator.geolocation) {
+    showMessage(
+      "Geolocation is not supported by this browser.",
+      true
+    );
+
+    return;
+  }
+
+  const sendPosition =
+    position => {
+      send({
+        type: "driver_location",
+        latitude:
+          position.coords.latitude,
+        longitude:
+          position.coords.longitude
+      });
+    };
+
+  navigator.geolocation.getCurrentPosition(
+    sendPosition,
+    error => {
+      console.log(
+        "Initial location error:",
+        error
+      );
+    },
+    {
+      enableHighAccuracy: true,
+      timeout: 8000,
+      maximumAge: 5000
+    }
+  );
+
+  locationTimer =
+    navigator.geolocation.watchPosition(
+      sendPosition,
+      error => {
+        console.log(
+          "Location watch error:",
+          error
+        );
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 5000
+      }
+    );
+}
+
+function stopLocationSharing() {
+  if (
+    locationTimer !== null &&
+    navigator.geolocation
+  ) {
+    navigator.geolocation.clearWatch(
+      locationTimer
+    );
+  }
+
+  locationTimer = null;
+}
+
+function updateOnlineUI() {
+  $("onlineLabel").textContent =
+    online
+      ? "Online — accepting rides"
+      : "Offline";
+
+  $("onlineLabel").className =
+    online ? "online" : "";
+
+  $("onlineBtn").textContent =
+    online
+      ? "Go Offline"
+      : "Go Online";
+
+  $("onlineBtn").className =
+    online ? "secondary" : "";
+
+  if (online) {
+    $("requests").innerHTML =
+      $("requests").querySelector(
+        ".request"
+      )
+        ? $("requests").innerHTML
+        : `<p class="muted">Waiting for ride requests...</p>`;
+  } else {
+    $("requests").innerHTML =
+      `<p class="muted">Go online to receive ride requests.</p>`;
+  }
+}
+
+function send(message) {
+  if (
+    ws &&
+    ws.readyState === WebSocket.OPEN
+  ) {
+    ws.send(JSON.stringify(message));
+    return true;
+  }
+
+  // Do not lose a button click just because the browser is reconnecting.
+  pendingMessages.push(message);
+
+  showMessage(
+    "Reconnecting to server...",
+    true
+  );
+
+  connect();
+  return false;
+}
+
+function showMessage(
+  text,
+  error = false
+) {
+  const message =
+    $("message");
+
+  if (!message) {
+    return;
+  }
+
+  message.textContent = text;
+
+  message.className =
+    `message ${error ? "error" : ""}`;
+}
+
+function escapeHtml(value) {
+  return String(value).replace(
+    /[&<>"']/g,
+    c => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#039;"
+    }[c])
+  );
+}
+
+connect();
