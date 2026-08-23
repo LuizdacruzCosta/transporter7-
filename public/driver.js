@@ -9,27 +9,14 @@ let locationTimer = null;
 
 const $ = id => document.getElementById(id);
 
-function connect(force = false) {
-  // Normally prevent duplicate WebSocket connections.
+function connect() {
+  // Do not create duplicate WebSocket connections.
   if (
-    !force &&
     ws &&
     (ws.readyState === WebSocket.OPEN ||
       ws.readyState === WebSocket.CONNECTING)
   ) {
     return;
-  }
-
-  // Force a fresh connection when returning from Google Maps.
-  if (force && ws) {
-    try {
-      ws.onclose = null;
-      ws.close();
-    } catch (error) {
-      console.log("Old WebSocket close error:", error);
-    }
-
-    ws = null;
   }
 
   if (reconnectTimer !== null) {
@@ -50,7 +37,7 @@ function connect(force = false) {
     register();
 
     // Restore any button action that was clicked while the socket
-    // was reconnecting.
+    // was reconnecting (for example after returning from Google Maps).
     if (pendingMessages.length) {
       const queued = pendingMessages.splice(0);
 
@@ -181,32 +168,11 @@ function scheduleReconnect() {
 // is open. When RideShare comes back, the old WebSocket may be dead.
 // Reconnect immediately so the ride buttons work again.
 window.addEventListener("pageshow", event => {
-  if (event.persisted) {
-    console.log("RideShare returned from Back-Forward Cache.");
-
-    // The old WebSocket can look OPEN even though it is no longer usable.
-    // Close it and force a completely new connection.
-    if (ws) {
-      try {
-        ws.onclose = null;
-        ws.close();
-      } catch (error) {
-        console.log("Old WebSocket close error:", error);
-      }
-
-      ws = null;
-    }
-
-    if (reconnectTimer !== null) {
-      clearTimeout(reconnectTimer);
-      reconnectTimer = null;
-    }
-
-    connect(true);
-    return;
-  }
-
-  if (!ws || ws.readyState === WebSocket.CLOSED) {
+  if (
+    event.persisted ||
+    !ws ||
+    ws.readyState === WebSocket.CLOSED
+  ) {
     connect();
   }
 });
